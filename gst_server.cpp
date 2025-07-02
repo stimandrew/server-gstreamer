@@ -1,6 +1,5 @@
 // gst_server.cpp
 #include "gst_server.h"
-#include <QDebug>
 
 GstStreamer::GstStreamer(QObject *parent) : QObject(parent)
 {
@@ -12,25 +11,34 @@ GstStreamer::~GstStreamer()
     stopStreaming();
 }
 
-void GstStreamer::startStreaming(const QString &host, int port)
+void GstStreamer::startStreaming(const QString &host, int port, int deviceIndex)
 {
     if (m_pipeline) {
         qWarning() << "Streaming already started";
         return;
     }
 
+    // Проверяем доступность устройства
+    QString devicePath = QString("/dev/video%1").arg(deviceIndex);
+    if (!QFileInfo::exists(devicePath)) {
+        qCritical() << "Video device" << devicePath << "not found";
+        emit errorOccurred(QString("Device %1 not available").arg(devicePath));
+        return;
+    }
+
+    // Формируем pipeline с выбранным устройством
     QString pipelineStr = QString(
-                              "v4l2src device=/dev/video0 ! "
-                              "image/jpeg,width=1920,height=1080,framerate=30/1 ! "
+                              "v4l2src device=%1 ! "
+                              "image/jpeg,width=1280,height=720,framerate=30/1 ! "
                               "mppjpegdec ! "
                               "videoconvert ! "
-                              "video/x-raw,format=NV12 ! "
+                              "video/x-raw,format=RGBA ! "
                               "mpph264enc gop=10 bps=3000000 ! "
                               "h264parse config-interval=-1 ! "
                               "rtph264pay pt=96 mtu=1400 ! "
                               "queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! "
-                              "udpsink host=%1 port=%2 sync=false async=false"
-                              ).arg(host).arg(port);
+                              "udpsink host=%2 port=%3 sync=false async=false"
+                              ).arg(devicePath).arg(host).arg(port);
 
     qDebug() << "Starting pipeline:" << pipelineStr;
 

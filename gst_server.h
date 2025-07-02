@@ -2,6 +2,8 @@
 #pragma once
 
 #include <QObject>
+#include <QDebug>
+#include <QFileInfo>
 #include <gst/gst.h>
 
 class GstStreamer : public QObject
@@ -11,8 +13,11 @@ public:
     explicit GstStreamer(QObject *parent = nullptr);
     ~GstStreamer();
 
-    void startStreaming(const QString &host, int port);
+    void startStreaming(const QString &host, int port, int deviceIndex = 0);
     void stopStreaming();
+
+signals: // Добавляем секцию signals
+    void errorOccurred(const QString& message); // Объявляем сигнал
 
 private:
     GstElement *m_pipeline = nullptr;
