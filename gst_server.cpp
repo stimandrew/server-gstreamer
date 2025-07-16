@@ -143,7 +143,11 @@ void GstStreamer::startStreaming(int deviceIndex) {
                 }
             }
 
-            m_activeStreams[deviceId] = QString("%1|%2:%3").arg(cameraName).arg(host).arg(port);
+            QVariantMap streamInfo;
+            streamInfo["name"] = cameraName;
+            streamInfo["address"] = QString("%1:%2").arg(host).arg(port);
+            streamInfo["deviceId"] = deviceId;
+            m_activeStreams[deviceId] = streamInfo;
             emit activeStreamsChanged();
         } else {
             m_activeStreams.remove(deviceId);

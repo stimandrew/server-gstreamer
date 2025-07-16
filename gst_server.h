@@ -58,7 +58,7 @@ public:
     QVariantMap activeStreams() const {
         QVariantMap result;
         for (auto it = m_activeStreams.constBegin(); it != m_activeStreams.constEnd(); ++it) {
-            result.insert(it.key(), it.value());
+            result.insert(it.key(), QVariant::fromValue(it.value()));
         }
         return result;
     }
@@ -96,7 +96,7 @@ private:
     QString m_host = "192.168.1.2";
     int m_port = 5000;
     QStringList m_availableDevices;
-    QMap<QString, QString> m_activeStreams;
+    QMap<QString, QVariantMap> m_activeStreams;
     QVector<CameraThread> m_cameraThreads;
     QMutex m_mutex;
 

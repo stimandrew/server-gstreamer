@@ -78,13 +78,28 @@ Window {
                         }
 
                         Button {
-                            text: streamer.availableDevices[index] in streamer.activeStreams ?
-                                  "Stop" : "Start"
+                            text: {
+                                var isActive = false;
+                                for (var key in streamer.activeStreams) {
+                                    if (streamer.activeStreams[key].deviceId === streamer.availableDevices[index]) {
+                                        isActive = true;
+                                        break;
+                                    }
+                                }
+                                return isActive ? "Stop" : "Start"
+                            }
                             onClicked: {
-                                if (text === "Start") {
-                                    streamer.startStreaming(index)
-                                } else {
+                                var isActive = false;
+                                for (var key in streamer.activeStreams) {
+                                    if (streamer.activeStreams[key].deviceId === streamer.availableDevices[index]) {
+                                        isActive = true;
+                                        break;
+                                    }
+                                }
+                                if (isActive) {
                                     streamer.stopStreaming(index)
+                                } else {
+                                    streamer.startStreaming(index)
                                 }
                             }
                         }
@@ -113,15 +128,15 @@ Window {
                     model: Object.keys(streamer.activeStreams).map(function(key) {
                         return streamer.activeStreams[key]
                     })
-                    height: 100
+                    height: 150  // Увеличим высоту для дополнительной информации
                     width: parent.width
                     clip: true
 
                     delegate: Label {
-                        property var parts: modelData.split("|")
-                        text: parts.length === 2 ?
-                              qsTr("Camera: %1\nAddress: %2").arg(parts[0]).arg(parts[1]) :
-                              modelData
+                        text: qsTr("Camera: %1\nAddress: %2\nDevice ID: %3")
+                              .arg(modelData.name)
+                              .arg(modelData.address)
+                              .arg(modelData.deviceId)
                         width: parent.width
                         elide: Text.ElideRight
                         wrapMode: Text.Wrap
