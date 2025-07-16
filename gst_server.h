@@ -11,6 +11,7 @@
 #include <QVector>
 #include <QMutex>
 #include <gst/gst.h>
+#include <QMap>
 
 class CameraWorker : public QObject {
     Q_OBJECT
@@ -42,7 +43,7 @@ class GstStreamer : public QObject
     Q_PROPERTY(QString host READ host WRITE setHost NOTIFY hostChanged)
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
     Q_PROPERTY(QStringList availableDevices READ availableDevices NOTIFY availableDevicesChanged)
-    Q_PROPERTY(QStringList activeStreams READ activeStreams NOTIFY activeStreamsChanged)
+    Q_PROPERTY(QVariantMap activeStreams READ activeStreams NOTIFY activeStreamsChanged)
 
 public:
     explicit GstStreamer(QObject* parent = nullptr);
@@ -54,7 +55,13 @@ public:
     Q_INVOKABLE void refreshAvailableDevices();
 
     QStringList availableDevices() const { return m_availableDevices; }
-    QStringList activeStreams() const { return m_activeStreams; }
+    QVariantMap activeStreams() const {
+        QVariantMap result;
+        for (auto it = m_activeStreams.constBegin(); it != m_activeStreams.constEnd(); ++it) {
+            result.insert(it.key(), it.value());
+        }
+        return result;
+    }
 
     QString host() const { return m_host; }
     void setHost(const QString& host) {
@@ -89,7 +96,7 @@ private:
     QString m_host = "192.168.1.2";
     int m_port = 5000;
     QStringList m_availableDevices;
-    QStringList m_activeStreams;
+    QMap<QString, QString> m_activeStreams;
     QVector<CameraThread> m_cameraThreads;
     QMutex m_mutex;
 

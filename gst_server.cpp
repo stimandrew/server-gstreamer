@@ -100,8 +100,7 @@ GstStreamer::~GstStreamer()
     stopAllStreams();
 }
 
-void GstStreamer::startStreaming(int deviceIndex)
-{
+void GstStreamer::startStreaming(int deviceIndex) {
     QMutexLocker locker(&m_mutex);
     if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
         emit errorOccurred("Invalid camera index");
@@ -115,6 +114,8 @@ void GstStreamer::startStreaming(int deviceIndex)
     }
 
     QString deviceId = cameras.at(deviceIndex).id();
+    QString host = m_host; // Create local copies
+    int port = m_port + m_cameraThreads.size();
 
     // Check if already streaming
     for (const auto& ct : m_cameraThreads) {
@@ -125,20 +126,27 @@ void GstStreamer::startStreaming(int deviceIndex)
     }
 
     QThread* thread = new QThread();
-    CameraWorker* worker = new CameraWorker(deviceId, m_host, m_port + m_cameraThreads.size());
+    CameraWorker* worker = new CameraWorker(deviceId, host, port);
 
     worker->moveToThread(thread);
 
     connect(thread, &QThread::started, worker, &CameraWorker::startStreaming);
-    connect(worker, &CameraWorker::streamingStateChanged, this, [this, deviceId](bool isStreaming) {
+    connect(worker, &CameraWorker::streamingStateChanged, this, [this, deviceId, host, port](bool isStreaming) {
         QMutexLocker locker(&m_mutex);
         if (isStreaming) {
-            if (!m_activeStreams.contains(deviceId)) {
-                m_activeStreams.append(deviceId);
-                emit activeStreamsChanged();
+            const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+            QString cameraName;
+            for (const auto& camera : cameras) {
+                if (camera.id() == deviceId) {
+                    cameraName = camera.description();
+                    break;
+                }
             }
+
+            m_activeStreams[deviceId] = QString("%1|%2:%3").arg(cameraName).arg(host).arg(port);
+            emit activeStreamsChanged();
         } else {
-            m_activeStreams.removeAll(deviceId);
+            m_activeStreams.remove(deviceId);
             emit activeStreamsChanged();
         }
     });
@@ -149,8 +157,7 @@ void GstStreamer::startStreaming(int deviceIndex)
     thread->start();
 }
 
-void GstStreamer::stopStreaming(int deviceIndex)
-{
+void GstStreamer::stopStreaming(int deviceIndex) {
     QMutexLocker locker(&m_mutex);
     if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
         emit errorOccurred("Invalid camera index");
@@ -167,12 +174,10 @@ void GstStreamer::stopStreaming(int deviceIndex)
 
     for (int i = 0; i < m_cameraThreads.size(); ++i) {
         if (m_cameraThreads[i].deviceId == deviceId) {
-            // Останавливаем поток безопасно
             m_cameraThreads[i].worker->stopStreaming();
             m_cameraThreads[i].thread->quit();
             m_cameraThreads[i].thread->wait();
 
-            // Удаляем воркер и поток
             delete m_cameraThreads[i].worker;
             delete m_cameraThreads[i].thread;
 
@@ -181,8 +186,7 @@ void GstStreamer::stopStreaming(int deviceIndex)
         }
     }
 
-    // Обновляем список активных стримов
-    m_activeStreams.removeAll(deviceId);
+    m_activeStreams.remove(deviceId);
     emit activeStreamsChanged();
 }
 

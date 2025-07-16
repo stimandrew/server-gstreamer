@@ -78,7 +78,7 @@ Window {
                         }
 
                         Button {
-                            text: streamer.activeStreams.indexOf(streamer.availableDevices[index]) >= 0 ?
+                            text: streamer.availableDevices[index] in streamer.activeStreams ?
                                   "Stop" : "Start"
                             onClicked: {
                                 if (text === "Start") {
@@ -110,15 +110,21 @@ Window {
 
                 ListView {
                     id: activeStreamsList
-                    model: streamer.activeStreams
+                    model: Object.keys(streamer.activeStreams).map(function(key) {
+                        return streamer.activeStreams[key]
+                    })
                     height: 100
                     width: parent.width
                     clip: true
 
                     delegate: Label {
-                        text: modelData
+                        property var parts: modelData.split("|")
+                        text: parts.length === 2 ?
+                              qsTr("Camera: %1\nAddress: %2").arg(parts[0]).arg(parts[1]) :
+                              modelData
                         width: parent.width
                         elide: Text.ElideRight
+                        wrapMode: Text.Wrap
                     }
                 }
 
