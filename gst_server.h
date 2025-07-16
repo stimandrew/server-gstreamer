@@ -7,30 +7,57 @@
 #include <QCamera>
 #include <QCameraDevice>
 #include <QMediaDevices>
+#include <QThread>
+#include <QVector>
+#include <QMutex>
 #include <gst/gst.h>
+
+class CameraWorker : public QObject {
+    Q_OBJECT
+public:
+    CameraWorker(const QString& deviceId, const QString& host, int port, QObject* parent = nullptr);
+    ~CameraWorker();
+
+public slots:
+    void startStreaming();
+    void stopStreaming();
+
+signals:
+    void errorOccurred(const QString& message);
+    void streamingStateChanged(bool isStreaming);
+
+private:
+    GstElement* m_pipeline = nullptr;
+    QString m_deviceId;
+    QString m_host;
+    int m_port;
+    QMutex m_mutex;
+
+    static void onBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
+};
 
 class GstStreamer : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(bool isStreaming READ isStreaming NOTIFY streamingStateChanged)
     Q_PROPERTY(QString host READ host WRITE setHost NOTIFY hostChanged)
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
-    Q_PROPERTY(int deviceIndex READ deviceIndex WRITE setDeviceIndex NOTIFY deviceIndexChanged)
     Q_PROPERTY(QStringList availableDevices READ availableDevices NOTIFY availableDevicesChanged)
+    Q_PROPERTY(QStringList activeStreams READ activeStreams NOTIFY activeStreamsChanged)
 
 public:
-    explicit GstStreamer(QObject *parent = nullptr);
+    explicit GstStreamer(QObject* parent = nullptr);
     ~GstStreamer();
 
-    Q_INVOKABLE void startStreaming();
-    Q_INVOKABLE void stopStreaming();
+    Q_INVOKABLE void startStreaming(int deviceIndex);
+    Q_INVOKABLE void stopStreaming(int deviceIndex);
+    Q_INVOKABLE void stopAllStreams();
     Q_INVOKABLE void refreshAvailableDevices();
 
-    bool isStreaming() const { return m_pipeline != nullptr; }
     QStringList availableDevices() const { return m_availableDevices; }
+    QStringList activeStreams() const { return m_activeStreams; }
 
     QString host() const { return m_host; }
-    void setHost(const QString &host) {
+    void setHost(const QString& host) {
         if (m_host != host) {
             m_host = host;
             emit hostChanged();
@@ -45,29 +72,27 @@ public:
         }
     }
 
-    int deviceIndex() const { return m_deviceIndex; }
-    void setDeviceIndex(int index) {
-        if (m_deviceIndex != index) {
-            m_deviceIndex = index;
-            emit deviceIndexChanged();
-        }
-    }
-
 signals:
     void errorOccurred(const QString& message);
-    void streamingStateChanged();
     void hostChanged();
     void portChanged();
-    void deviceIndexChanged();
     void availableDevicesChanged();
+    void activeStreamsChanged();
 
 private:
-    GstElement *m_pipeline = nullptr;
+    struct CameraThread {
+        QThread* thread;
+        CameraWorker* worker;
+        QString deviceId;
+    };
+
     QString m_host = "192.168.1.2";
     int m_port = 5000;
-    int m_deviceIndex = 0;
     QStringList m_availableDevices;
+    QStringList m_activeStreams;
+    QVector<CameraThread> m_cameraThreads;
+    QMutex m_mutex;
 
-    static void onBusMessage(GstBus *bus, GstMessage *msg, gpointer data);
     void updateAvailableDevices();
+    void updateActiveStreams();
 };

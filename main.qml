@@ -6,11 +6,11 @@ import gst_server 1.0
 
 Window {
     id: window
-    width: 500
-    minimumWidth: 450
-    height: 400
+    width: 600
+    minimumWidth: 550
+    height: 500
     visible: true
-    title: qsTr("GStreamer Video Server")
+    title: qsTr("Multi-Camera Streamer")
 
     GstStreamer {
         id: streamer
@@ -19,23 +19,19 @@ Window {
 
     Column {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 15
+        anchors.margins: 15
+        spacing: 10
 
         GroupBox {
             title: "Stream Settings"
             Layout.fillWidth: true
+            width: parent.width
 
-            Grid {
+            GridLayout {
                 columns: 2
-                anchors.fill: parent
-                columnSpacing: 10
-                rowSpacing: 10
+                width: parent.width
 
-                Label {
-                    text: "Host:"
-                    width: 120
-                }
+                Label { text: "Host:"; Layout.minimumWidth: 100 }
                 TextField {
                     id: hostField
                     text: streamer.host
@@ -43,10 +39,7 @@ Window {
                     Layout.fillWidth: true
                 }
 
-                Label {
-                    text: "Port:"
-                    width: 120
-                }
+                Label { text: "Base Port:"; Layout.minimumWidth: 100 }
                 SpinBox {
                     id: portField
                     from: 1024
@@ -55,48 +48,84 @@ Window {
                     onValueChanged: streamer.port = value
                     Layout.fillWidth: true
                 }
+            }
+        }
 
-                Label {
-                    text: "Available Cameras:"
-                    width: 120
-                }
-                ComboBox {
-                    id: cameraCombo
+        GroupBox {
+            title: "Cameras"
+            Layout.fillWidth: true
+            width: parent.width
+
+            ColumnLayout {
+                width: parent.width
+
+                ListView {
+                    id: cameraList
                     model: streamer.availableDevices
-                    onCurrentIndexChanged: streamer.deviceIndex = currentIndex
-                    Layout.fillWidth: true
-                    width: 300
-                    popup.width: width
-                    delegate: ItemDelegate {
-                        width: cameraCombo.popup.width
-                        text: modelData
-                        highlighted: cameraCombo.highlightedIndex === index
+                    height: 150
+                    width: parent.width
+                    clip: true
+
+                    delegate: RowLayout {
+                        width: cameraList.width
+                        spacing: 10
+
+                        Label {
+                            text: modelData
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+
+                        Button {
+                            text: streamer.activeStreams.indexOf(streamer.availableDevices[index]) >= 0 ?
+                                  "Stop" : "Start"
+                            onClicked: {
+                                if (text === "Start") {
+                                    streamer.startStreaming(index)
+                                } else {
+                                    streamer.stopStreaming(index)
+                                }
+                            }
+                        }
                     }
                 }
 
                 Button {
-                    id: refreshButton
                     text: "Refresh Cameras"
                     onClicked: streamer.refreshAvailableDevices()
-                    Layout.columnSpan: 2
                     Layout.fillWidth: true
                 }
             }
         }
 
-        Button {
-            id: streamButton
-            text: streamer.isStreaming ? "Stop Streaming" : "Start Streaming"
-            onClicked: streamer.isStreaming ? streamer.stopStreaming() : streamer.startStreaming()
+        GroupBox {
+            title: "Active Streams"
             Layout.fillWidth: true
-        }
+            width: parent.width
 
-        Label {
-            text: streamer.isStreaming ?
-                  `Streaming to ${streamer.host}:${streamer.port} (device ${streamer.deviceIndex})` :
-                  "Streaming stopped"
-            horizontalAlignment: Text.AlignHCenter
-            Layout.fillWidth: true
+            ListView {
+                id: activeStreamsList
+                model: streamer.activeStreams
+                height: 100
+                width: parent.width
+                clip: true
+
+                delegate: Label {
+                    text: modelData
+                    width: parent.width
+                    elide: Text.ElideRight
+                }
+            }
+
+            Button {
+                text: "Stop All Streams"
+                onClicked: {
+                    if (streamer) {
+                        streamer.stopAllStreams()
+                    }
+                }
+                Layout.fillWidth: true
+            }
         }
     }
 
@@ -105,9 +134,9 @@ Window {
         title: "Error"
         standardButtons: Dialog.Ok
         modal: true
+        width: Math.min(window.width * 0.8, 400)
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2
-        width: Math.min(window.width * 0.8, 400)
 
         property alias text: errorLabel.text
 

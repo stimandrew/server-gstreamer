@@ -1,57 +1,30 @@
 // gst_server.cpp
 #include "gst_server.h"
 
-GstStreamer::GstStreamer(QObject *parent) : QObject(parent)
+CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int port, QObject* parent)
+    : QObject(parent), m_deviceId(deviceId), m_host(host), m_port(port)
 {
     gst_init(nullptr, nullptr);
-    updateAvailableDevices();
 }
 
-GstStreamer::~GstStreamer()
+CameraWorker::~CameraWorker()
 {
-    stopStreaming();
-}
-
-void GstStreamer::updateAvailableDevices()
-{
-    m_availableDevices.clear();
-    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-
-    for (const QCameraDevice &camera : cameras) {
-        m_availableDevices.append(camera.description());
-    }
-
-    if (m_availableDevices.isEmpty()) {
-        m_availableDevices.append("No cameras found");
-    }
-
-    emit availableDevicesChanged();
-}
-
-void GstStreamer::refreshAvailableDevices()
-{
-    updateAvailableDevices();
-}
-
-void GstStreamer::startStreaming()
-{
+    QMutexLocker locker(&m_mutex);
     if (m_pipeline) {
-        qWarning() << "Streaming already started";
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+    }
+}
+
+void CameraWorker::startStreaming()
+{
+    QMutexLocker locker(&m_mutex);
+    if (m_pipeline) {
+        emit errorOccurred("Streaming already started");
         return;
     }
 
-    // Check if the selected device index is valid
-    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-    if (m_deviceIndex < 0 || m_deviceIndex >= cameras.size()) {
-        qCritical() << "Invalid camera index:" << m_deviceIndex;
-        emit errorOccurred(QString("Invalid camera index: %1").arg(m_deviceIndex));
-        return;
-    }
-
-    // Get the actual device name from QCamera
-    QString deviceName = cameras.at(m_deviceIndex).id();
-
-    // Формируем pipeline
     QString pipelineStr = QString(
                               "v4l2src device=%1 ! "
                               "image/jpeg,width=1280,height=720,framerate=30/1 ! "
@@ -63,73 +36,210 @@ void GstStreamer::startStreaming()
                               "rtph264pay pt=96 mtu=1400 ! "
                               "queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! "
                               "udpsink host=%2 port=%3 sync=false async=false"
-                              ).arg(deviceName).arg(m_host).arg(m_port);
+                              ).arg(m_deviceId).arg(m_host).arg(m_port);
 
-    qDebug() << "Starting pipeline:" << pipelineStr;
-
-    GError *error = nullptr;
+    GError* error = nullptr;
     m_pipeline = gst_parse_launch(pipelineStr.toUtf8().constData(), &error);
 
     if (error) {
-        qCritical() << "Failed to create pipeline:" << error->message;
-        g_error_free(error);
         emit errorOccurred(QString("Pipeline error: %1").arg(error->message));
+        g_error_free(error);
         return;
     }
 
-    // Установка callback для сообщений от GStreamer
-    GstBus *bus = gst_element_get_bus(m_pipeline);
+    GstBus* bus = gst_element_get_bus(m_pipeline);
     gst_bus_add_watch(bus, (GstBusFunc)onBusMessage, this);
     gst_object_unref(bus);
 
     gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
-    emit streamingStateChanged();
-    qDebug() << "Streaming started to" << m_host << ":" << m_port;
+    emit streamingStateChanged(true);
 }
 
-void GstStreamer::stopStreaming()
+void CameraWorker::stopStreaming()
 {
+    QMutexLocker locker(&m_mutex);
     if (m_pipeline) {
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_object_unref(m_pipeline);
         m_pipeline = nullptr;
-        emit streamingStateChanged();
-        qDebug() << "Streaming stopped";
+        emit streamingStateChanged(false);
     }
 }
 
-void GstStreamer::onBusMessage(GstBus *bus, GstMessage *msg, gpointer data)
+void CameraWorker::onBusMessage(GstBus* bus, GstMessage* msg, gpointer data)
 {
     Q_UNUSED(bus);
-    GstStreamer *self = static_cast<GstStreamer*>(data);
+    CameraWorker* self = static_cast<CameraWorker*>(data);
 
     switch (GST_MESSAGE_TYPE(msg)) {
     case GST_MESSAGE_ERROR: {
-        GError *err;
-        gchar *debug;
+        GError* err;
+        gchar* debug;
         gst_message_parse_error(msg, &err, &debug);
-        qCritical() << "GStreamer error:" << err->message;
-        if (debug) qCritical() << "Debug info:" << debug;
         emit self->errorOccurred(QString("GStreamer error: %1").arg(err->message));
         g_error_free(err);
         g_free(debug);
-        self->stopStreaming();
+        emit self->streamingStateChanged(false);
         break;
     }
     case GST_MESSAGE_EOS:
-        qDebug() << "End of stream";
-        self->stopStreaming();
+        emit self->streamingStateChanged(false);
         break;
-    case GST_MESSAGE_STATE_CHANGED: {
-        GstState old_state, new_state, pending_state;
-        gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
-        qDebug() << "State changed from" << gst_element_state_get_name(old_state)
-                 << "to" << gst_element_state_get_name(new_state);
-        break;
-    }
     default:
         break;
     }
 }
 
+GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
+{
+    updateAvailableDevices();
+}
 
+GstStreamer::~GstStreamer()
+{
+    stopAllStreams();
+}
+
+void GstStreamer::startStreaming(int deviceIndex)
+{
+    QMutexLocker locker(&m_mutex);
+    if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
+        emit errorOccurred("Invalid camera index");
+        return;
+    }
+
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    if (deviceIndex >= cameras.size()) {
+        emit errorOccurred("Camera not available");
+        return;
+    }
+
+    QString deviceId = cameras.at(deviceIndex).id();
+
+    // Check if already streaming
+    for (const auto& ct : m_cameraThreads) {
+        if (ct.deviceId == deviceId) {
+            emit errorOccurred("Camera already streaming");
+            return;
+        }
+    }
+
+    QThread* thread = new QThread();
+    CameraWorker* worker = new CameraWorker(deviceId, m_host, m_port + m_cameraThreads.size());
+
+    worker->moveToThread(thread);
+
+    connect(thread, &QThread::started, worker, &CameraWorker::startStreaming);
+    connect(worker, &CameraWorker::streamingStateChanged, this, [this, deviceId](bool isStreaming) {
+        QMutexLocker locker(&m_mutex);
+        if (isStreaming) {
+            if (!m_activeStreams.contains(deviceId)) {
+                m_activeStreams.append(deviceId);
+                emit activeStreamsChanged();
+            }
+        } else {
+            m_activeStreams.removeAll(deviceId);
+            emit activeStreamsChanged();
+        }
+    });
+    connect(worker, &CameraWorker::errorOccurred, this, &GstStreamer::errorOccurred);
+    connect(thread, &QThread::finished, worker, &CameraWorker::deleteLater);
+
+    m_cameraThreads.append({thread, worker, deviceId});
+    thread->start();
+}
+
+void GstStreamer::stopStreaming(int deviceIndex)
+{
+    QMutexLocker locker(&m_mutex);
+    if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
+        emit errorOccurred("Invalid camera index");
+        return;
+    }
+
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    if (deviceIndex >= cameras.size()) {
+        emit errorOccurred("Camera not available");
+        return;
+    }
+
+    QString deviceId = cameras.at(deviceIndex).id();
+
+    for (int i = 0; i < m_cameraThreads.size(); ++i) {
+        if (m_cameraThreads[i].deviceId == deviceId) {
+            // Останавливаем поток безопасно
+            m_cameraThreads[i].worker->stopStreaming();
+            m_cameraThreads[i].thread->quit();
+            m_cameraThreads[i].thread->wait();
+
+            // Удаляем воркер и поток
+            delete m_cameraThreads[i].worker;
+            delete m_cameraThreads[i].thread;
+
+            m_cameraThreads.remove(i);
+            break;
+        }
+    }
+
+    // Обновляем список активных стримов
+    m_activeStreams.removeAll(deviceId);
+    emit activeStreamsChanged();
+}
+
+void GstStreamer::stopAllStreams()
+{
+    QMutexLocker locker(&m_mutex);
+
+    // Создаем временную копию для безопасного удаления
+    auto threadsCopy = m_cameraThreads;
+    m_cameraThreads.clear();
+
+    // Останавливаем все потоки
+    for (auto& ct : threadsCopy) {
+        // Отключаем сигналы перед удалением
+        disconnect(ct.worker, nullptr, this, nullptr);
+        disconnect(ct.thread, nullptr, nullptr, nullptr);
+
+        ct.worker->stopStreaming();
+        ct.thread->quit();
+
+        if (!ct.thread->wait(1000)) {
+            qWarning() << "Thread didn't finish in time, terminating";
+            ct.thread->terminate();
+            ct.thread->wait();
+        }
+
+        delete ct.worker;
+        delete ct.thread;
+    }
+
+    m_activeStreams.clear();
+    emit activeStreamsChanged();
+}
+
+void GstStreamer::refreshAvailableDevices()
+{
+    updateAvailableDevices();
+}
+
+void GstStreamer::updateAvailableDevices()
+{
+    QMutexLocker locker(&m_mutex);
+    m_availableDevices.clear();
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+
+    for (const QCameraDevice& camera : cameras) {
+        m_availableDevices.append(camera.description());
+    }
+
+    if (m_availableDevices.isEmpty()) {
+        m_availableDevices.append("No cameras found");
+    }
+
+    emit availableDevicesChanged();
+}
+
+void GstStreamer::updateActiveStreams()
+{
+    // No implementation needed - updated via signals
+}
