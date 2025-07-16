@@ -11,8 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_INSTALL_PREFIX /home/ab/server)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Quick OpenGL)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Quick OpenGL)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets Quick OpenGL Multimedia)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets Quick OpenGL Multimedia)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GSTREAMER REQUIRED gstreamer-1.0 gstreamer-video-1.0 gstreamer-app-1.0)
@@ -54,6 +54,8 @@ target_link_libraries(server-gstreamer
   Qt${QT_VERSION_MAJOR}::Quick
   Qt${QT_VERSION_MAJOR}::Widgets
   Qt${QT_VERSION_MAJOR}::OpenGL
+  Qt${QT_VERSION_MAJOR}::Multimedia
+
   ${GSTREAMER_LIBRARIES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE

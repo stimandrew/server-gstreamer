@@ -4,11 +4,33 @@
 GstStreamer::GstStreamer(QObject *parent) : QObject(parent)
 {
     gst_init(nullptr, nullptr);
+    updateAvailableDevices();
 }
 
 GstStreamer::~GstStreamer()
 {
     stopStreaming();
+}
+
+void GstStreamer::updateAvailableDevices()
+{
+    m_availableDevices.clear();
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+
+    for (const QCameraDevice &camera : cameras) {
+        m_availableDevices.append(camera.description());
+    }
+
+    if (m_availableDevices.isEmpty()) {
+        m_availableDevices.append("No cameras found");
+    }
+
+    emit availableDevicesChanged();
+}
+
+void GstStreamer::refreshAvailableDevices()
+{
+    updateAvailableDevices();
 }
 
 void GstStreamer::startStreaming()
@@ -18,13 +40,16 @@ void GstStreamer::startStreaming()
         return;
     }
 
-    // Проверяем доступность устройства
-    QString devicePath = QString("/dev/video%1").arg(m_deviceIndex);
-    if (!QFileInfo::exists(devicePath)) {
-        qCritical() << "Video device" << devicePath << "not found";
-        emit errorOccurred(QString("Device %1 not available").arg(devicePath));
+    // Check if the selected device index is valid
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    if (m_deviceIndex < 0 || m_deviceIndex >= cameras.size()) {
+        qCritical() << "Invalid camera index:" << m_deviceIndex;
+        emit errorOccurred(QString("Invalid camera index: %1").arg(m_deviceIndex));
         return;
     }
+
+    // Get the actual device name from QCamera
+    QString deviceName = cameras.at(m_deviceIndex).id();
 
     // Формируем pipeline
     QString pipelineStr = QString(
@@ -38,7 +63,7 @@ void GstStreamer::startStreaming()
                               "rtph264pay pt=96 mtu=1400 ! "
                               "queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! "
                               "udpsink host=%2 port=%3 sync=false async=false"
-                              ).arg(devicePath).arg(m_host).arg(m_port);
+                              ).arg(deviceName).arg(m_host).arg(m_port);
 
     qDebug() << "Starting pipeline:" << pipelineStr;
 
