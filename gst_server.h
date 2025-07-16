@@ -1,4 +1,3 @@
-// gst_server.h
 #pragma once
 
 #include <QObject>
@@ -29,7 +28,29 @@ public:
     Q_INVOKABLE void startStreaming(int deviceIndex);
     Q_INVOKABLE void stopStreaming(int deviceIndex);
     Q_INVOKABLE void stopAllStreams();
-    Q_INVOKABLE void refreshAvailableDevices();
+    Q_INVOKABLE bool isCameraActive(int deviceIndex) {
+        QMutexLocker locker(&m_mutex);
+        if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
+            return false;
+        }
+
+        const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+        if (deviceIndex >= cameras.size()) {
+            return false;
+        }
+
+        QString deviceId = cameras.at(deviceIndex).id();
+        return m_activeStreams.contains(deviceId);
+    }
+
+    Q_INVOKABLE int findCameraIndex(const QString& deviceId) {
+        QMutexLocker locker(&m_mutex);
+        const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+        for (int i = 0; i < cameras.size(); ++i) {
+            if (cameras[i].id() == deviceId) return i;
+        }
+        return -1;
+    }
 
     QStringList availableDevices() const { return m_availableDevices; }
     QVariantMap activeStreams() const {
@@ -62,7 +83,9 @@ signals:
     void portChanged();
     void availableDevicesChanged();
     void activeStreamsChanged();
-
+    void cameraStateChanged(int deviceIndex, bool isActive);
+public slots:
+    void refreshAvailableDevices();
 private:
     struct CameraThread {
         QThread* thread;

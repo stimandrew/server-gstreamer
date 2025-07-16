@@ -1,4 +1,3 @@
-// gst_server.cpp
 #include "gst_server.h"
 
 
@@ -43,7 +42,7 @@ void GstStreamer::startStreaming(int deviceIndex) {
     worker->moveToThread(thread);
 
     connect(thread, &QThread::started, worker, &CameraWorker::startStreaming);
-    connect(worker, &CameraWorker::streamingStateChanged, this, [this, deviceId, host, port](bool isStreaming) {
+    connect(worker, &CameraWorker::streamingStateChanged, this, [this, deviceIndex, deviceId, host, port](bool isStreaming) {
         QMutexLocker locker(&m_mutex);
         if (isStreaming) {
             const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
@@ -61,9 +60,11 @@ void GstStreamer::startStreaming(int deviceIndex) {
             streamInfo["deviceId"] = deviceId;
             m_activeStreams[deviceId] = streamInfo;
             emit activeStreamsChanged();
+            emit cameraStateChanged(deviceIndex, true);
         } else {
             m_activeStreams.remove(deviceId);
             emit activeStreamsChanged();
+            emit cameraStateChanged(deviceIndex, false);
         }
     });
     connect(worker, &CameraWorker::errorOccurred, this, &GstStreamer::errorOccurred);
@@ -90,33 +91,60 @@ void GstStreamer::stopStreaming(int deviceIndex) {
 
     for (int i = 0; i < m_cameraThreads.size(); ++i) {
         if (m_cameraThreads[i].deviceId == deviceId) {
-            m_cameraThreads[i].worker->stopStreaming();
-            m_cameraThreads[i].thread->quit();
-            m_cameraThreads[i].thread->wait();
+            auto& ct = m_cameraThreads[i];
 
-            delete m_cameraThreads[i].worker;
-            delete m_cameraThreads[i].thread;
+            // Отключаем все сигналы, чтобы избежать возможных колбэков
+            disconnect(ct.worker, nullptr, this, nullptr);
+            disconnect(ct.thread, nullptr, nullptr, nullptr);
 
+            // Останавливаем пайплайн и поток
+            ct.worker->stopStreaming();
+            ct.thread->quit();
+
+            // Даем потоку время на завершение
+            if (!ct.thread->wait(1000)) {
+                qWarning() << "Thread didn't finish in time, terminating";
+                ct.thread->terminate();
+                ct.thread->wait();
+            }
+
+            // Удаляем объекты
+            delete ct.worker;
+            delete ct.thread;
+
+            // Удаляем запись из списка
             m_cameraThreads.remove(i);
+
+            // Обновляем состояние
+            m_activeStreams.remove(deviceId);
+            emit cameraStateChanged(deviceIndex, false);
+            emit activeStreamsChanged();
             break;
         }
     }
-
-    m_activeStreams.remove(deviceId);
-    emit activeStreamsChanged();
 }
 
-void GstStreamer::stopAllStreams()
-{
+void GstStreamer::stopAllStreams() {
     QMutexLocker locker(&m_mutex);
 
     // Создаем временную копию для безопасного удаления
     auto threadsCopy = m_cameraThreads;
     m_cameraThreads.clear();
 
+    // Собираем индексы всех активных камер
+    QList<int> activeIndices;
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    for (const auto& ct : threadsCopy) {
+        for (int i = 0; i < cameras.size(); ++i) {
+            if (cameras[i].id() == ct.deviceId) {
+                activeIndices.append(i);
+                break;
+            }
+        }
+    }
+
     // Останавливаем все потоки
     for (auto& ct : threadsCopy) {
-        // Отключаем сигналы перед удалением
         disconnect(ct.worker, nullptr, this, nullptr);
         disconnect(ct.thread, nullptr, nullptr, nullptr);
 
@@ -134,29 +162,94 @@ void GstStreamer::stopAllStreams()
     }
 
     m_activeStreams.clear();
+
+    // Уведомляем UI об остановке каждой камеры
+    for (int index : activeIndices) {
+        emit cameraStateChanged(index, false);
+    }
     emit activeStreamsChanged();
 }
 
-void GstStreamer::refreshAvailableDevices()
-{
+void GstStreamer::refreshAvailableDevices() {
     updateAvailableDevices();
 }
 
-void GstStreamer::updateAvailableDevices()
-{
+void GstStreamer::updateAvailableDevices() {
     QMutexLocker locker(&m_mutex);
-    m_availableDevices.clear();
+
+    // Get current cameras
     const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
 
+    // Check for removed cameras and stop their threads
+    for (int i = m_cameraThreads.size() - 1; i >= 0; --i) {
+        bool found = false;
+        QString currentId = m_cameraThreads[i].deviceId;
+
+        for (const QCameraDevice& camera : cameras) {
+            if (camera.id() == currentId) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            // Camera was removed - stop the stream
+            auto& ct = m_cameraThreads[i];
+
+            // Disconnect signals to prevent callbacks during cleanup
+            disconnect(ct.worker, nullptr, this, nullptr);
+            disconnect(ct.thread, nullptr, nullptr, nullptr);
+
+            // Stop the stream
+            ct.worker->stopStreaming();
+            ct.thread->quit();
+
+            if (!ct.thread->wait(500)) {
+                ct.thread->terminate();
+                ct.thread->wait();
+            }
+
+            // Clean up
+            delete ct.worker;
+            delete ct.thread;
+            m_cameraThreads.remove(i);
+
+            // Remove from active streams
+            m_activeStreams.remove(currentId);
+        }
+    }
+
+    // Update available devices list
+    QStringList newDevices;
     for (const QCameraDevice& camera : cameras) {
-        m_availableDevices.append(camera.description());
+        newDevices.append(camera.description());
     }
 
-    if (m_availableDevices.isEmpty()) {
-        m_availableDevices.append("No cameras found");
-    }
+    if (newDevices != m_availableDevices) {
+        m_availableDevices = newDevices.isEmpty()
+        ? QStringList{"No cameras found"}
+        : newDevices;
 
-    emit availableDevicesChanged();
+        // Find camera indices that were stopped
+        QList<int> stoppedIndices;
+        const auto oldActive = m_activeStreams.keys();
+        for (const QString& id : oldActive) {
+            if (!m_activeStreams.contains(id)) {
+                int idx = findCameraIndex(id);
+                if (idx >= 0) stoppedIndices.append(idx);
+            }
+        }
+
+        // Emit signals after all updates are done
+        locker.unlock();
+
+        emit availableDevicesChanged();
+        emit activeStreamsChanged();
+
+        for (int idx : stoppedIndices) {
+            emit cameraStateChanged(idx, false);
+        }
+    }
 }
 
 void GstStreamer::updateActiveStreams()

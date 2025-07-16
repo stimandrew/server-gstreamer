@@ -9,7 +9,7 @@ Window {
     width: 600
     minimumWidth: 550
     height: 550
-    minimumHeight: 550
+    minimumHeight: 600
     visible: true
     title: qsTr("Multi-Camera Streamer")
 
@@ -78,28 +78,21 @@ Window {
                         }
 
                         Button {
-                            text: {
-                                var isActive = false;
-                                for (var key in streamer.activeStreams) {
-                                    if (streamer.activeStreams[key].deviceId === streamer.availableDevices[index]) {
-                                        isActive = true;
-                                        break;
-                                    }
-                                }
-                                return isActive ? "Stop" : "Start"
-                            }
+                            id: streamButton
+                            text: streamer.isCameraActive(index) ? "Stop" : "Start"
                             onClicked: {
-                                var isActive = false;
-                                for (var key in streamer.activeStreams) {
-                                    if (streamer.activeStreams[key].deviceId === streamer.availableDevices[index]) {
-                                        isActive = true;
-                                        break;
-                                    }
-                                }
-                                if (isActive) {
+                                if (streamer.isCameraActive(index)) {
                                     streamer.stopStreaming(index)
                                 } else {
                                     streamer.startStreaming(index)
+                                }
+                            }
+                            Connections {
+                                target: streamer
+                                function onCameraStateChanged(deviceIndex, isActive) {
+                                    if (deviceIndex === index) {
+                                        streamButton.text = isActive ? "Stop" : "Start"
+                                    }
                                 }
                             }
                         }
