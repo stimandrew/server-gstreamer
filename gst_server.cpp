@@ -11,7 +11,7 @@ GstStreamer::~GstStreamer()
     stopStreaming();
 }
 
-void GstStreamer::startStreaming(const QString &host, int port, int deviceIndex)
+void GstStreamer::startStreaming()
 {
     if (m_pipeline) {
         qWarning() << "Streaming already started";
@@ -19,14 +19,14 @@ void GstStreamer::startStreaming(const QString &host, int port, int deviceIndex)
     }
 
     // Проверяем доступность устройства
-    QString devicePath = QString("/dev/video%1").arg(deviceIndex);
+    QString devicePath = QString("/dev/video%1").arg(m_deviceIndex);
     if (!QFileInfo::exists(devicePath)) {
         qCritical() << "Video device" << devicePath << "not found";
         emit errorOccurred(QString("Device %1 not available").arg(devicePath));
         return;
     }
 
-    // Формируем pipeline с выбранным устройством
+    // Формируем pipeline
     QString pipelineStr = QString(
                               "v4l2src device=%1 ! "
                               "image/jpeg,width=1280,height=720,framerate=30/1 ! "
@@ -38,7 +38,7 @@ void GstStreamer::startStreaming(const QString &host, int port, int deviceIndex)
                               "rtph264pay pt=96 mtu=1400 ! "
                               "queue max-size-buffers=0 max-size-bytes=0 max-size-time=2000000000 ! "
                               "udpsink host=%2 port=%3 sync=false async=false"
-                              ).arg(devicePath).arg(host).arg(port);
+                              ).arg(devicePath).arg(m_host).arg(m_port);
 
     qDebug() << "Starting pipeline:" << pipelineStr;
 
@@ -48,6 +48,7 @@ void GstStreamer::startStreaming(const QString &host, int port, int deviceIndex)
     if (error) {
         qCritical() << "Failed to create pipeline:" << error->message;
         g_error_free(error);
+        emit errorOccurred(QString("Pipeline error: %1").arg(error->message));
         return;
     }
 
@@ -57,7 +58,8 @@ void GstStreamer::startStreaming(const QString &host, int port, int deviceIndex)
     gst_object_unref(bus);
 
     gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
-    qDebug() << "Streaming started to" << host << ":" << port;
+    emit streamingStateChanged();
+    qDebug() << "Streaming started to" << m_host << ":" << m_port;
 }
 
 void GstStreamer::stopStreaming()
@@ -66,6 +68,7 @@ void GstStreamer::stopStreaming()
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_object_unref(m_pipeline);
         m_pipeline = nullptr;
+        emit streamingStateChanged();
         qDebug() << "Streaming stopped";
     }
 }
@@ -82,6 +85,7 @@ void GstStreamer::onBusMessage(GstBus *bus, GstMessage *msg, gpointer data)
         gst_message_parse_error(msg, &err, &debug);
         qCritical() << "GStreamer error:" << err->message;
         if (debug) qCritical() << "Debug info:" << debug;
+        emit self->errorOccurred(QString("GStreamer error: %1").arg(err->message));
         g_error_free(err);
         g_free(debug);
         self->stopStreaming();
@@ -102,3 +106,5 @@ void GstStreamer::onBusMessage(GstBus *bus, GstMessage *msg, gpointer data)
         break;
     }
 }
+
+

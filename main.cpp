@@ -1,60 +1,32 @@
-#include <QCoreApplication>
-#include <QCommandLineParser>
+#include <QGuiApplication>
+#include <QQmlApplicationEngine>
+#include <QQmlContext>
+#include <QQuickWindow>
+#include <QQuickItem>
 #include "gst_server.h"
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication a(argc, argv);
+    qputenv("QT_QPA_PLATFORM", "wayland");
+    qputenv("GST_DEBUG", "4");
+    qputenv("GST_DEBUG_NO_COLOR", "1");
 
-    // Настройка парсера командной строки
-    QCommandLineParser parser;
-    parser.setApplicationDescription("GStreamer UDP Video Server");
-    parser.addHelpOption();
 
-    // Добавление параметров командной строки
-    QCommandLineOption hostOption(
-        QStringList() << "a" << "address",
-        "Target host address",
-        "host",
-        "192.168.1.2" // Значение по умолчанию
-        );
-    parser.addOption(hostOption);
+    QGuiApplication app(argc, argv);
 
-    QCommandLineOption portOption(
-        QStringList() << "p" << "port",
-        "UDP port",
-        "port",
-        "5000" // Значение по умолчанию
-        );
-    parser.addOption(portOption);
+    QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
-    // +++ ДОБАВЛЯЕМ НОВУЮ ОПЦИЮ ДЛЯ ВЫБОРА УСТРОЙСТВА +++
-    QCommandLineOption deviceOption(
-        QStringList() << "d" << "device",
-        "Video device index (0, 1, etc.)",
-        "index",
-        "0" // Значение по умолчанию
-        );
-    parser.addOption(deviceOption);
+    qmlRegisterType<GstStreamer>("gst_server", 1, 0, "GstStreamer");
 
-    // Парсинг аргументов
-    parser.process(a);
+    QQmlApplicationEngine engine;
 
-    // Создание и запуск стримера
-    GstStreamer streamer;
-    streamer.startStreaming(
-        parser.value(hostOption),
-        parser.value(portOption).toInt(),
-        // +++ ПЕРЕДАЕМ ИНДЕКС УСТРОЙСТВА +++
-        parser.value(deviceOption).toInt()
-        );
+    engine.load(QUrl(QStringLiteral("qrc:/main.qml")));
 
-    // Обработка сигнала завершения (Ctrl+C)
-    QObject::connect(&a, &QCoreApplication::aboutToQuit, [&streamer]() {
-        streamer.stopStreaming();
-    });
+    if (engine.rootObjects().isEmpty()) {
+        return -1;
+    }
 
-    qDebug() << "Server started. Press Ctrl+C to stop...";
 
-    return a.exec();
+
+    return app.exec();
 }
