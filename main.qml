@@ -8,7 +8,8 @@ Window {
     id: window
     width: 600
     minimumWidth: 550
-    height: 500
+    height: 550
+    minimumHeight: 550
     visible: true
     title: qsTr("Multi-Camera Streamer")
 
@@ -103,28 +104,39 @@ Window {
             Layout.fillWidth: true
             width: parent.width
 
-            ListView {
-                id: activeStreamsList
-                model: streamer.activeStreams
-                height: 100
+            ColumnLayout {
                 width: parent.width
-                clip: true
+                spacing: 10
 
-                delegate: Label {
-                    text: modelData
+                ListView {
+                    id: activeStreamsList
+                    model: streamer.activeStreams
+                    height: 100
                     width: parent.width
-                    elide: Text.ElideRight
-                }
-            }
+                    clip: true
 
-            Button {
-                text: "Stop All Streams"
-                onClicked: {
-                    if (streamer) {
-                        streamer.stopAllStreams()
+                    delegate: Label {
+                        text: modelData
+                        width: parent.width
+                        elide: Text.ElideRight
                     }
                 }
-                Layout.fillWidth: true
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Item { Layout.fillWidth: true }
+
+                    Button {
+                        text: "Stop All Streams"
+                        onClicked: {
+                            if (streamer) {
+                                streamer.stopAllStreams()
+                            }
+                        }
+                    }
+                }
             }
         }
     }
