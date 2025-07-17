@@ -322,3 +322,40 @@ void GstStreamer::updateActiveStreams()
 {
     // Не требует реализации - обновляется через сигналы
 }
+
+
+void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath)
+{
+    QMutexLocker locker(&m_mutex);
+    if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
+        emit errorOccurred("Invalid camera index");
+        return;
+    }
+
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    if (deviceIndex >= cameras.size()) {
+        emit errorOccurred("Camera not available");
+        return;
+    }
+
+    QString deviceId = cameras.at(deviceIndex).id();
+
+    // Создаем worker для захвата изображения
+    CameraCaptureWorker* worker = new CameraCaptureWorker(deviceId);
+    QThread* thread = new QThread();
+
+    worker->moveToThread(thread);
+
+    connect(thread, &QThread::started, worker, [worker, savePath]() {
+        worker->captureSingleImage(savePath);
+    });
+    connect(worker, &CameraCaptureWorker::imageCaptured, this, [this, thread, worker](const QString& filePath) {
+        emit errorOccurred(QString("Image captured: %1").arg(filePath));
+        worker->deleteLater();
+        thread->quit();
+    });
+    connect(worker, &CameraCaptureWorker::errorOccurred, this, &GstStreamer::errorOccurred);
+    connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+
+    thread->start();
+}

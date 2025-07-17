@@ -13,6 +13,7 @@
 #include <gst/gst.h>
 #include <QMap>
 #include "cameraworker.h"
+#include "cameracaptureworker.h"
 
 // Класс для управления видеопотоками с камер через GStreamer
 class GstStreamer : public QObject
@@ -44,6 +45,8 @@ public:
 
     // Находит индекс камеры по её идентификатору
     Q_INVOKABLE int findCameraIndex(const QString& deviceId);
+
+    Q_INVOKABLE void captureCameraImage(int deviceIndex, const QString& savePath = "");
 
     // Возвращает список доступных устройств
     QStringList availableDevices() const;

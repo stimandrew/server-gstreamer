@@ -96,6 +96,13 @@ Window {
                                 }
                             }
                         }
+
+                        Button {
+                            text: "Capture"
+                            onClicked: {
+                                streamer.captureCameraImage(index, ".")
+                            }
+                        }
                     }
                 }
 

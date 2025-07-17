@@ -28,6 +28,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_SOURCES}
         gst_server.h gst_server.cpp
         cameraworker.h cameraworker.cpp
+        cameracaptureworker.h cameracaptureworker.cpp
 
 
 
