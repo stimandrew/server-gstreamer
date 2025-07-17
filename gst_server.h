@@ -1,3 +1,4 @@
+// Файл: gst_server.h
 #pragma once
 
 #include <QObject>
@@ -13,6 +14,7 @@
 #include <QMap>
 #include "cameraworker.h"
 
+// Класс для управления видеопотоками с камер через GStreamer
 class GstStreamer : public QObject
 {
     Q_OBJECT
@@ -22,84 +24,86 @@ class GstStreamer : public QObject
     Q_PROPERTY(QVariantMap activeStreams READ activeStreams NOTIFY activeStreamsChanged)
 
 public:
+    // Конструктор класса
     explicit GstStreamer(QObject* parent = nullptr);
+
+    // Деструктор класса
     ~GstStreamer();
 
+    // Запускает поток с камеры по указанному индексу
     Q_INVOKABLE void startStreaming(int deviceIndex);
+
+    // Останавливает поток с камеры по указанному индексу
     Q_INVOKABLE void stopStreaming(int deviceIndex);
+
+    // Останавливает все активные потоки
     Q_INVOKABLE void stopAllStreams();
-    Q_INVOKABLE bool isCameraActive(int deviceIndex) {
-        QMutexLocker locker(&m_mutex);
-        if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
-            return false;
-        }
 
-        const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-        if (deviceIndex >= cameras.size()) {
-            return false;
-        }
+    // Проверяет, активна ли камера по указанному индексу
+    Q_INVOKABLE bool isCameraActive(int deviceIndex);
 
-        QString deviceId = cameras.at(deviceIndex).id();
-        return m_activeStreams.contains(deviceId);
-    }
+    // Находит индекс камеры по её идентификатору
+    Q_INVOKABLE int findCameraIndex(const QString& deviceId);
 
-    Q_INVOKABLE int findCameraIndex(const QString& deviceId) {
-        QMutexLocker locker(&m_mutex);
-        const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-        for (int i = 0; i < cameras.size(); ++i) {
-            if (cameras[i].id() == deviceId) return i;
-        }
-        return -1;
-    }
+    // Возвращает список доступных устройств
+    QStringList availableDevices() const;
 
-    QStringList availableDevices() const { return m_availableDevices; }
-    QVariantMap activeStreams() const {
-        QVariantMap result;
-        for (auto it = m_activeStreams.constBegin(); it != m_activeStreams.constEnd(); ++it) {
-            result.insert(it.key(), QVariant::fromValue(it.value()));
-        }
-        return result;
-    }
+    // Возвращает информацию о активных потоках
+    QVariantMap activeStreams() const;
 
-    QString host() const { return m_host; }
-    void setHost(const QString& host) {
-        if (m_host != host) {
-            m_host = host;
-            emit hostChanged();
-        }
-    }
+    // Возвращает текущий хост для потоков
+    QString host() const;
 
-    int port() const { return m_port; }
-    void setPort(int port) {
-        if (m_port != port) {
-            m_port = port;
-            emit portChanged();
-        }
-    }
+    // Устанавливает хост для потоков
+    void setHost(const QString& host);
+
+    // Возвращает текущий порт для потоков
+    int port() const;
+
+    // Устанавливает порт для потоков
+    void setPort(int port);
 
 signals:
+    // Сигнал об ошибке
     void errorOccurred(const QString& message);
+
+    // Сигнал об изменении хоста
     void hostChanged();
+
+    // Сигнал об изменении порта
     void portChanged();
+
+    // Сигнал об изменении списка доступных устройств
     void availableDevicesChanged();
+
+    // Сигнал об изменении списка активных потоков
     void activeStreamsChanged();
+
+    // Сигнал об изменении состояния камеры
     void cameraStateChanged(int deviceIndex, bool isActive);
+
 public slots:
+    // Обновляет список доступных устройств
     void refreshAvailableDevices();
+
 private:
+    // Структура для хранения информации о потоке камеры
     struct CameraThread {
         QThread* thread;
         CameraWorker* worker;
         QString deviceId;
     };
 
-    QString m_host = "192.168.1.2";
-    int m_port = 5000;
-    QStringList m_availableDevices;
-    QMap<QString, QVariantMap> m_activeStreams;
-    QVector<CameraThread> m_cameraThreads;
-    QMutex m_mutex;
+    QString m_host = "192.168.1.2"; // Хост по умолчанию
+    int m_port = 5000;              // Порт по умолчанию
+    QStringList m_availableDevices; // Список доступных устройств
+    QMap<QString, QVariantMap> m_activeStreams; // Активные потоки
+    QVector<CameraThread> m_cameraThreads; // Потоки камер
+    QMutex m_mutex; // Мьютекс для синхронизации
 
+    // Обновляет список доступных устройств
     void updateAvailableDevices();
+
+    // Обновляет список активных потоков
     void updateActiveStreams();
 };
