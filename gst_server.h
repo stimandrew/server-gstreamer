@@ -1,3 +1,4 @@
+// Файл: gst_server.h
 #pragma once
 
 #include <QObject>
@@ -13,6 +14,7 @@
 #include <QMap>
 #include "cameraworker.h"
 
+// Класс GstStreamer: управляет видеопотоками с камер через GStreamer
 class GstStreamer : public QObject
 {
     Q_OBJECT
@@ -28,54 +30,17 @@ public:
     Q_INVOKABLE void startStreaming(int deviceIndex);
     Q_INVOKABLE void stopStreaming(int deviceIndex);
     Q_INVOKABLE void stopAllStreams();
-    Q_INVOKABLE bool isCameraActive(int deviceIndex) {
-        QMutexLocker locker(&m_mutex);
-        if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
-            return false;
-        }
+    Q_INVOKABLE bool isCameraActive(int deviceIndex);
+    Q_INVOKABLE int findCameraIndex(const QString& deviceId);
 
-        const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-        if (deviceIndex >= cameras.size()) {
-            return false;
-        }
+    QStringList availableDevices() const;
+    QVariantMap activeStreams() const;
 
-        QString deviceId = cameras.at(deviceIndex).id();
-        return m_activeStreams.contains(deviceId);
-    }
+    QString host() const;
+    void setHost(const QString& host);
 
-    Q_INVOKABLE int findCameraIndex(const QString& deviceId) {
-        QMutexLocker locker(&m_mutex);
-        const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-        for (int i = 0; i < cameras.size(); ++i) {
-            if (cameras[i].id() == deviceId) return i;
-        }
-        return -1;
-    }
-
-    QStringList availableDevices() const { return m_availableDevices; }
-    QVariantMap activeStreams() const {
-        QVariantMap result;
-        for (auto it = m_activeStreams.constBegin(); it != m_activeStreams.constEnd(); ++it) {
-            result.insert(it.key(), QVariant::fromValue(it.value()));
-        }
-        return result;
-    }
-
-    QString host() const { return m_host; }
-    void setHost(const QString& host) {
-        if (m_host != host) {
-            m_host = host;
-            emit hostChanged();
-        }
-    }
-
-    int port() const { return m_port; }
-    void setPort(int port) {
-        if (m_port != port) {
-            m_port = port;
-            emit portChanged();
-        }
-    }
+    int port() const;
+    void setPort(int port);
 
 signals:
     void errorOccurred(const QString& message);
@@ -84,8 +49,10 @@ signals:
     void availableDevicesChanged();
     void activeStreamsChanged();
     void cameraStateChanged(int deviceIndex, bool isActive);
+
 public slots:
     void refreshAvailableDevices();
+
 private:
     struct CameraThread {
         QThread* thread;

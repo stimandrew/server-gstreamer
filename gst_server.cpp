@@ -1,5 +1,5 @@
+// Файл: gst_server.cpp
 #include "gst_server.h"
-
 
 GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 {
@@ -25,10 +25,9 @@ void GstStreamer::startStreaming(int deviceIndex) {
     }
 
     QString deviceId = cameras.at(deviceIndex).id();
-    QString host = m_host; // Create local copies
+    QString host = m_host;
     int port = m_port + m_cameraThreads.size();
 
-    // Check if already streaming
     for (const auto& ct : m_cameraThreads) {
         if (ct.deviceId == deviceId) {
             emit errorOccurred("Camera already streaming");
@@ -93,29 +92,22 @@ void GstStreamer::stopStreaming(int deviceIndex) {
         if (m_cameraThreads[i].deviceId == deviceId) {
             auto& ct = m_cameraThreads[i];
 
-            // Отключаем все сигналы, чтобы избежать возможных колбэков
             disconnect(ct.worker, nullptr, this, nullptr);
             disconnect(ct.thread, nullptr, nullptr, nullptr);
 
-            // Останавливаем пайплайн и поток
             ct.worker->stopStreaming();
             ct.thread->quit();
 
-            // Даем потоку время на завершение
             if (!ct.thread->wait(1000)) {
                 qWarning() << "Thread didn't finish in time, terminating";
                 ct.thread->terminate();
                 ct.thread->wait();
             }
 
-            // Удаляем объекты
             delete ct.worker;
             delete ct.thread;
 
-            // Удаляем запись из списка
             m_cameraThreads.remove(i);
-
-            // Обновляем состояние
             m_activeStreams.remove(deviceId);
             emit cameraStateChanged(deviceIndex, false);
             emit activeStreamsChanged();
@@ -127,11 +119,9 @@ void GstStreamer::stopStreaming(int deviceIndex) {
 void GstStreamer::stopAllStreams() {
     QMutexLocker locker(&m_mutex);
 
-    // Создаем временную копию для безопасного удаления
     auto threadsCopy = m_cameraThreads;
     m_cameraThreads.clear();
 
-    // Собираем индексы всех активных камер
     QList<int> activeIndices;
     const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
     for (const auto& ct : threadsCopy) {
@@ -143,7 +133,6 @@ void GstStreamer::stopAllStreams() {
         }
     }
 
-    // Останавливаем все потоки
     for (auto& ct : threadsCopy) {
         disconnect(ct.worker, nullptr, this, nullptr);
         disconnect(ct.thread, nullptr, nullptr, nullptr);
@@ -163,11 +152,68 @@ void GstStreamer::stopAllStreams() {
 
     m_activeStreams.clear();
 
-    // Уведомляем UI об остановке каждой камеры
     for (int index : activeIndices) {
         emit cameraStateChanged(index, false);
     }
     emit activeStreamsChanged();
+}
+
+bool GstStreamer::isCameraActive(int deviceIndex) {
+    QMutexLocker locker(&m_mutex);
+    if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
+        return false;
+    }
+
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    if (deviceIndex >= cameras.size()) {
+        return false;
+    }
+
+    QString deviceId = cameras.at(deviceIndex).id();
+    return m_activeStreams.contains(deviceId);
+}
+
+int GstStreamer::findCameraIndex(const QString& deviceId) {
+    QMutexLocker locker(&m_mutex);
+    const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
+    for (int i = 0; i < cameras.size(); ++i) {
+        if (cameras[i].id() == deviceId) return i;
+    }
+    return -1;
+}
+
+QStringList GstStreamer::availableDevices() const {
+    return m_availableDevices;
+}
+
+QVariantMap GstStreamer::activeStreams() const {
+    QVariantMap result;
+    for (auto it = m_activeStreams.constBegin(); it != m_activeStreams.constEnd(); ++it) {
+        result.insert(it.key(), QVariant::fromValue(it.value()));
+    }
+    return result;
+}
+
+QString GstStreamer::host() const {
+    return m_host;
+}
+
+void GstStreamer::setHost(const QString& host) {
+    if (m_host != host) {
+        m_host = host;
+        emit hostChanged();
+    }
+}
+
+int GstStreamer::port() const {
+    return m_port;
+}
+
+void GstStreamer::setPort(int port) {
+    if (m_port != port) {
+        m_port = port;
+        emit portChanged();
+    }
 }
 
 void GstStreamer::refreshAvailableDevices() {
@@ -177,10 +223,8 @@ void GstStreamer::refreshAvailableDevices() {
 void GstStreamer::updateAvailableDevices() {
     QMutexLocker locker(&m_mutex);
 
-    // Get current cameras
     const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
 
-    // Check for removed cameras and stop their threads
     for (int i = m_cameraThreads.size() - 1; i >= 0; --i) {
         bool found = false;
         QString currentId = m_cameraThreads[i].deviceId;
@@ -193,14 +237,11 @@ void GstStreamer::updateAvailableDevices() {
         }
 
         if (!found) {
-            // Camera was removed - stop the stream
             auto& ct = m_cameraThreads[i];
 
-            // Disconnect signals to prevent callbacks during cleanup
             disconnect(ct.worker, nullptr, this, nullptr);
             disconnect(ct.thread, nullptr, nullptr, nullptr);
 
-            // Stop the stream
             ct.worker->stopStreaming();
             ct.thread->quit();
 
@@ -209,17 +250,13 @@ void GstStreamer::updateAvailableDevices() {
                 ct.thread->wait();
             }
 
-            // Clean up
             delete ct.worker;
             delete ct.thread;
             m_cameraThreads.remove(i);
-
-            // Remove from active streams
             m_activeStreams.remove(currentId);
         }
     }
 
-    // Update available devices list
     QStringList newDevices;
     for (const QCameraDevice& camera : cameras) {
         newDevices.append(camera.description());
@@ -230,7 +267,6 @@ void GstStreamer::updateAvailableDevices() {
         ? QStringList{"No cameras found"}
         : newDevices;
 
-        // Find camera indices that were stopped
         QList<int> stoppedIndices;
         const auto oldActive = m_activeStreams.keys();
         for (const QString& id : oldActive) {
@@ -240,7 +276,6 @@ void GstStreamer::updateAvailableDevices() {
             }
         }
 
-        // Emit signals after all updates are done
         locker.unlock();
 
         emit availableDevicesChanged();
@@ -252,7 +287,6 @@ void GstStreamer::updateAvailableDevices() {
     }
 }
 
-void GstStreamer::updateActiveStreams()
-{
-    // No implementation needed - updated via signals
+void GstStreamer::updateActiveStreams() {
+    // Не требует реализации - обновляется через сигналы
 }
