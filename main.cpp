@@ -11,7 +11,7 @@ int main(int argc, char *argv[])
     qputenv("GST_DEBUG", "4");
     qputenv("GST_DEBUG_NO_COLOR", "1");
 
-
+    gst_init(&argc, &argv);
     QGuiApplication app(argc, argv);
 
     QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);

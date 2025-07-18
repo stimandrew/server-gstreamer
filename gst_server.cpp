@@ -97,31 +97,33 @@ void GstStreamer::stopStreaming(int deviceIndex) {
         if (m_cameraThreads[i].deviceId == deviceId) {
             auto& ct = m_cameraThreads[i];
 
-            // Отключаем все сигналы
+            // Stop worker in its own thread
+            QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
+
+            // Clean up connections
             disconnect(ct.worker, nullptr, this, nullptr);
-            disconnect(ct.thread, nullptr, nullptr, nullptr);
+            disconnect(ct.thread, nullptr, ct.worker, nullptr);
 
-            // Останавливаем поток
-            ct.worker->stopStreaming();
+            // Quit thread and wait for completion
             ct.thread->quit();
-
-            // Ожидаем завершения потока
-            if (!ct.thread->wait(1000)) {
-                qWarning() << "Thread didn't finish in time, terminating";
+            if (!ct.thread->wait(2000)) {  // Increased timeout
+                qWarning() << "Forcing thread termination";
                 ct.thread->terminate();
                 ct.thread->wait();
             }
 
-            // Освобождаем ресурсы
-            delete ct.worker;
-            delete ct.thread;
+            // Clean up objects
+            ct.worker->deleteLater();
+            ct.thread->deleteLater();
 
-            // Удаляем запись
+            // Remove from containers
             m_cameraThreads.remove(i);
             m_activeStreams.remove(deviceId);
+
             emit cameraStateChanged(deviceIndex, false);
             emit activeStreamsChanged();
-            break;
+
+            return;
         }
     }
 }
@@ -130,14 +132,10 @@ void GstStreamer::stopStreaming(int deviceIndex) {
 void GstStreamer::stopAllStreams() {
     QMutexLocker locker(&m_mutex);
 
-    // Создаем копию для безопасного удаления
-    auto threadsCopy = m_cameraThreads;
-    m_cameraThreads.clear();
-
-    // Собираем индексы активных камер
+    // Collect indices of active cameras before stopping
     QList<int> activeIndices;
     const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-    for (const auto& ct : threadsCopy) {
+    for (const auto& ct : m_cameraThreads) {
         for (int i = 0; i < cameras.size(); ++i) {
             if (cameras[i].id() == ct.deviceId) {
                 activeIndices.append(i);
@@ -146,27 +144,31 @@ void GstStreamer::stopAllStreams() {
         }
     }
 
-    // Останавливаем все потоки
-    for (auto& ct : threadsCopy) {
+    // Stop all workers in their own threads first
+    for (auto& ct : m_cameraThreads) {
+        QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
+    }
+
+    // Then clean up all threads
+    for (auto& ct : m_cameraThreads) {
         disconnect(ct.worker, nullptr, this, nullptr);
         disconnect(ct.thread, nullptr, nullptr, nullptr);
 
-        ct.worker->stopStreaming();
         ct.thread->quit();
-
-        if (!ct.thread->wait(1000)) {
-            qWarning() << "Thread didn't finish in time, terminating";
+        if (!ct.thread->wait(100)) {  // Increased timeout
+            qWarning() << "Forcing thread termination";
             ct.thread->terminate();
             ct.thread->wait();
         }
 
-        delete ct.worker;
-        delete ct.thread;
+        ct.worker->deleteLater();
+        ct.thread->deleteLater();
     }
 
+    m_cameraThreads.clear();
     m_activeStreams.clear();
 
-    // Уведомляем UI об остановке
+    // Notify UI about stopped streams
     for (int index : activeIndices) {
         emit cameraStateChanged(index, false);
     }
