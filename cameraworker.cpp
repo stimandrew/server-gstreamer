@@ -2,7 +2,8 @@
 #include "cameraworker.h"
 
 CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int port, QObject* parent)
-    : QObject(parent), m_deviceId(deviceId), m_host(host), m_port(port)
+    : QObject(parent), m_deviceId(deviceId), m_host(host), m_port(port),
+    m_lastFrameTime(std::chrono::steady_clock::now())
 {
     m_videoSink = new QVideoSink(this); // Создаем новый QVideoSink
     connect(m_videoSink, &QVideoSink::videoFrameChanged,
@@ -174,6 +175,10 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
 
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
+    // Ограничение частоты кадров до 30 FPS для этого потока
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastFrameTime).count();
+
     // Конвертируем кадр в QImage и масштабируем до 1280x720
     QImage image = frame.toImage();
     if (image.isNull()) return;
@@ -190,8 +195,19 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
             int y = (scaledImage.height() - 720) / 2;
             scaledImage = scaledImage.copy(x, y, 1280, 720);
         }
+
+        if (elapsed < 15) {
+            return;
+        }
+        m_lastFrameTime = now;
+
     } else {
         scaledImage = image;
+
+        if (elapsed < 20) {
+            return;
+        }
+        m_lastFrameTime = now;
     }
 
     // Конвертируем в RGBA8888

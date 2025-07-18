@@ -44,6 +44,7 @@ private:
     QVideoSink* m_videoSink = nullptr;
     bool m_isStreaming = false;
     guint64 m_frameCount = 0;
+    std::chrono::steady_clock::time_point m_lastFrameTime;
 
     void cleanupPipeline();
     void cleanupCamera();
