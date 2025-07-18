@@ -332,8 +332,7 @@ void GstStreamer::updateActiveStreams()
 }
 
 
-void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath)
-{
+void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath) {
     QMutexLocker locker(&m_mutex);
     if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
         emit errorOccurred("Invalid camera index");
@@ -348,22 +347,37 @@ void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath)
 
     QString deviceId = cameras.at(deviceIndex).id();
 
-    // Создаем worker для захвата изображения
-    CameraCaptureWorker* worker = new CameraCaptureWorker(deviceId);
-    QThread* thread = new QThread();
+    // Проверяем, есть ли уже worker для этой камеры
+    CameraWorker* streamingWorker = nullptr;
+    for (const auto& ct : m_cameraThreads) {
+        if (ct.deviceId == deviceId) {
+            streamingWorker = ct.worker;
+            break;
+        }
+    }
 
-    worker->moveToThread(thread);
+    // Если камера уже используется для стриминга, используем её видео sink
+    if (streamingWorker) {
+        QMetaObject::invokeMethod(streamingWorker, "captureFrame", Qt::QueuedConnection,
+                                  Q_ARG(QString, savePath.isEmpty() ? QDir::currentPath() : savePath));
+    } else {
+        // Создаем временный worker для захвата
+        CameraCaptureWorker* worker = new CameraCaptureWorker(deviceId);
+        QThread* thread = new QThread();
 
-    connect(thread, &QThread::started, worker, [worker, savePath]() {
-        worker->captureSingleImage(savePath);
-    });
-    connect(worker, &CameraCaptureWorker::imageCaptured, this, [this, thread, worker](const QString& filePath) {
-        emit errorOccurred(QString("Image captured: %1").arg(filePath));
-        worker->deleteLater();
-        thread->quit();
-    });
-    connect(worker, &CameraCaptureWorker::errorOccurred, this, &GstStreamer::errorOccurred);
-    connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+        worker->moveToThread(thread);
 
-    thread->start();
+        connect(thread, &QThread::started, worker, [worker, savePath]() {
+            worker->captureSingleImage(savePath);
+        });
+        connect(worker, &CameraCaptureWorker::imageCaptured, this, [this, thread, worker](const QString& filePath) {
+            emit errorOccurred(QString("Image captured: %1").arg(filePath));
+            worker->deleteLater();
+            thread->quit();
+        });
+        connect(worker, &CameraCaptureWorker::errorOccurred, this, &GstStreamer::errorOccurred);
+        connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+
+        thread->start();
+    }
 }

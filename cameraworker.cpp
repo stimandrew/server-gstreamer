@@ -3,6 +3,7 @@
 CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int port, QObject* parent)
     : QObject(parent), m_deviceId(deviceId), m_host(host), m_port(port)
 {
+    connect(&m_videoSink, &QVideoSink::videoFrameChanged, this, &CameraWorker::handleFrame);
 }
 
 CameraWorker::~CameraWorker()
@@ -249,4 +250,35 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
     } else {
         gst_buffer_unref(buffer);
     }
+}
+
+void CameraWorker::captureFrame(const QString& savePath) {
+    QMutexLocker locker(&m_mutex);
+    if (!m_isStreaming || !m_camera || !m_camera->isActive()) {
+        emit errorOccurred("Camera is not active");
+        return;
+    }
+
+    // Сохраняем текущий кадр
+    QVideoFrame currentFrame = m_videoSink.videoFrame();
+    if (!currentFrame.isValid()) {
+        emit errorOccurred("No valid frame available");
+        return;
+    }
+
+    QImage image = currentFrame.toImage();
+    if (image.isNull()) {
+        emit errorOccurred("Failed to convert frame to image");
+        return;
+    }
+
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz");
+    QString fileName = QString("%1/capture_%2.jpg").arg(savePath).arg(timestamp);
+
+    if (!image.save(fileName, "JPEG", 90)) {
+        emit errorOccurred(QString("Failed to save image to %1").arg(fileName));
+        return;
+    }
+
+    emit errorOccurred(QString("Image captured: %1").arg(fileName));
 }

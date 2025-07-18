@@ -87,8 +87,7 @@ void CameraCaptureWorker::stopCapture()
     emit captureStopped();
 }
 
-void CameraCaptureWorker::captureSingleImage(const QString& savePath)
-{
+void CameraCaptureWorker::captureSingleImage(const QString& savePath) {
     QMutexLocker locker(&m_mutex);
 
     if (!m_camera) {
@@ -107,23 +106,33 @@ void CameraCaptureWorker::captureSingleImage(const QString& savePath)
             return;
         }
 
-        connect(m_camera, &QCamera::activeChanged, this, [this, savePath](bool active) {
-            if (active) {
-                // После активации камеры делаем снимок
-                m_videoSink.setVideoFrame(QVideoFrame());
+        connect(&m_videoSink, &QVideoSink::videoFrameChanged, this, [this, savePath](const QVideoFrame& frame) {
+            if (frame.isValid()) {
+                QImage image = frame.toImage();
+                if (!image.isNull()) {
+                    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz");
+                    QString fileName = QString("%1/capture_%2.jpg")
+                                           .arg(savePath.isEmpty() ? QDir::currentPath() : savePath)
+                                           .arg(timestamp);
+
+                    if (image.save(fileName, "JPEG", 90)) {
+                        emit imageCaptured(fileName);
+                    } else {
+                        emit errorOccurred(QString("Failed to save image to %1").arg(fileName));
+                    }
+                } else {
+                    emit errorOccurred("Failed to convert frame to image");
+                }
+                m_camera->stop();
             }
         });
 
         m_camera->start();
     } else if (m_camera->isActive()) {
-        // Камера уже активна - делаем снимок
+        // Если камера уже активна, просто запросим новый кадр
         m_videoSink.setVideoFrame(QVideoFrame());
     } else {
         m_camera->start();
-    }
-
-    if (!savePath.isEmpty()) {
-        m_savePath = savePath;
     }
 }
 

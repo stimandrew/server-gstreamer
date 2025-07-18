@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QThread>
 #include <QEventLoop>
+#include <QDateTime>
 
 class CameraWorker : public QObject {
     Q_OBJECT
@@ -21,6 +22,7 @@ public:
 public slots:
     void startStreaming();
     void stopStreaming();
+    void captureFrame(const QString& savePath);
 
 signals:
     void errorOccurred(const QString& message);
