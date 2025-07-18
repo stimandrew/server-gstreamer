@@ -174,14 +174,35 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
 
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
-    QImage image = frame.toImage().convertToFormat(QImage::Format_RGBA8888);
+    // Конвертируем кадр в QImage и масштабируем до 1280x720
+    QImage image = frame.toImage();
     if (image.isNull()) return;
 
-    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, image.sizeInBytes(), nullptr);
+    // Масштабируем изображение до 1280x720 с сохранением пропорций и обрезкой
+    QImage scaledImage;
+    if (image.width() != 1280 || image.height() != 720) {
+        // Сохраняем пропорции и обрезаем до нужного размера
+        scaledImage = image.scaled(1280, 720, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+
+        // Если изображение больше целевого размера, обрезаем центральную часть
+        if (scaledImage.width() > 1280 || scaledImage.height() > 720) {
+            int x = (scaledImage.width() - 1280) / 2;
+            int y = (scaledImage.height() - 720) / 2;
+            scaledImage = scaledImage.copy(x, y, 1280, 720);
+        }
+    } else {
+        scaledImage = image;
+    }
+
+    // Конвертируем в RGBA8888
+    QImage rgbaImage = scaledImage.convertToFormat(QImage::Format_RGBA8888);
+    if (rgbaImage.isNull()) return;
+
+    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, rgbaImage.sizeInBytes(), nullptr);
     GstMapInfo map;
 
     if (gst_buffer_map(buffer, &map, GST_MAP_WRITE)) {
-        memcpy(map.data, image.constBits(), image.sizeInBytes());
+        memcpy(map.data, rgbaImage.constBits(), rgbaImage.sizeInBytes());
         gst_buffer_unmap(buffer, &map);
 
         GST_BUFFER_PTS(buffer) = gst_util_uint64_scale(m_frameCount, GST_SECOND, 30);
