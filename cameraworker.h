@@ -51,6 +51,7 @@ private:
     void ensureInWorkerThread();
     bool setupPipeline();
     bool setupCamera();
+    QImage processFrame(const QVideoFrame& frame);
 
     static void onBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
     static void onNeedData(GstElement* appsrc, guint size, gpointer data);

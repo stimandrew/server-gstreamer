@@ -94,13 +94,51 @@ bool CameraWorker::setupCamera()
     return false;
 }
 
+QImage CameraWorker::processFrame(const QVideoFrame &frame)
+{
+    // Ограничение частоты кадров до 30 FPS для этого потока
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastFrameTime).count();
+
+    // Конвертируем кадр в QImage
+    QImage image = frame.toImage();
+    if (image.isNull()) return QImage();
+
+    // Масштабируем изображение до 1280x720 с сохранением пропорций и обрезкой
+    QImage scaledImage;
+    if (image.width() != 1280 || image.height() != 720) {
+        // Сохраняем пропорции и обрезаем до нужного размера
+        scaledImage = image.scaled(1280, 720, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+
+        // Если изображение больше целевого размера, обрезаем центральную часть
+        if (scaledImage.width() > 1280 || scaledImage.height() > 720) {
+            int x = (scaledImage.width() - 1280) / 2;
+            int y = (scaledImage.height() - 720) / 2;
+            scaledImage = scaledImage.copy(x, y, 1280, 720);
+        }
+
+        if (elapsed < 15) {
+            return QImage();
+        }
+        m_lastFrameTime = now;
+    } else {
+        scaledImage = image;
+
+        if (elapsed < 20) {
+            return QImage();
+        }
+        m_lastFrameTime = now;
+    }
+
+    return scaledImage;
+}
+
 bool CameraWorker::setupPipeline()
 {
     QString pipelineStr = QString(
                               "appsrc name=source is-live=true format=time do-timestamp=true "
                               "caps=video/x-raw,format=RGBA,width=1280,height=720,framerate=30/1 ! "
                               "videoconvert ! "
-                              "video/x-raw,format=NV12 ! "  // Изменено на NV12 для лучшей совместимости с RGA
                               "mpph264enc gop=10 bps=3000000 ! "
                               "h264parse config-interval=-1 ! "
                               "rtph264pay pt=96 mtu=1400 ! "
@@ -175,40 +213,8 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
 
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
-    // Ограничение частоты кадров до 30 FPS для этого потока
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastFrameTime).count();
-
-    // Конвертируем кадр в QImage и масштабируем до 1280x720
-    QImage image = frame.toImage();
-    if (image.isNull()) return;
-
-    // Масштабируем изображение до 1280x720 с сохранением пропорций и обрезкой
-    QImage scaledImage;
-    if (image.width() != 1280 || image.height() != 720) {
-        // Сохраняем пропорции и обрезаем до нужного размера
-        scaledImage = image.scaled(1280, 720, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-
-        // Если изображение больше целевого размера, обрезаем центральную часть
-        if (scaledImage.width() > 1280 || scaledImage.height() > 720) {
-            int x = (scaledImage.width() - 1280) / 2;
-            int y = (scaledImage.height() - 720) / 2;
-            scaledImage = scaledImage.copy(x, y, 1280, 720);
-        }
-
-        if (elapsed < 15) {
-            return;
-        }
-        m_lastFrameTime = now;
-
-    } else {
-        scaledImage = image;
-
-        if (elapsed < 20) {
-            return;
-        }
-        m_lastFrameTime = now;
-    }
+    QImage scaledImage = processFrame(frame);
+    if (scaledImage.isNull()) return;
 
     // Конвертируем в RGBA8888
     QImage rgbaImage = scaledImage.convertToFormat(QImage::Format_RGBA8888);
