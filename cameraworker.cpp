@@ -9,8 +9,21 @@ CameraWorker::~CameraWorker()
 {
     stopStreaming();
     if (m_camera) {
+        m_camera->stop();
         delete m_camera;
         m_camera = nullptr;
+    }
+
+    // Добавляем проверку на nullptr
+    if (m_pipeline) {
+        gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
+    }
+
+    if (m_appsrc) {
+        gst_object_unref(m_appsrc);
+        m_appsrc = nullptr;
     }
 }
 

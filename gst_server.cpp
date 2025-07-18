@@ -269,21 +269,42 @@ void GstStreamer::updateAvailableDevices() {
             // Камера удалена - останавливаем поток
             auto& ct = m_cameraThreads[i];
 
+            // Отключаем все сигналы от worker и thread
             disconnect(ct.worker, nullptr, this, nullptr);
             disconnect(ct.thread, nullptr, nullptr, nullptr);
 
-            ct.worker->stopStreaming();
-            ct.thread->quit();
+            // Останавливаем worker в его собственном потоке
+            QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
 
+            // Завершаем поток
+            ct.thread->quit();
             if (!ct.thread->wait(500)) {
                 ct.thread->terminate();
                 ct.thread->wait();
             }
 
-            delete ct.worker;
-            delete ct.thread;
+            // Удаляем объекты
+            ct.worker->deleteLater();
+            ct.thread->deleteLater();
+
+            // Удаляем из контейнеров
             m_cameraThreads.remove(i);
             m_activeStreams.remove(currentId);
+
+            // Находим индекс камеры для уведомления UI
+            int idx = -1;
+            for (int j = 0; j < m_availableDevices.size(); ++j) {
+                if (m_availableDevices[j].contains(currentId)) {
+                    idx = j;
+                    break;
+                }
+            }
+
+            if (idx >= 0) {
+                locker.unlock();
+                emit cameraStateChanged(idx, false);
+                locker.relock();
+            }
         }
     }
 
@@ -298,24 +319,9 @@ void GstStreamer::updateAvailableDevices() {
         ? QStringList{"No cameras found"}
         : newDevices;
 
-        // Находим индексы остановленных камер
-        QList<int> stoppedIndices;
-        const auto oldActive = m_activeStreams.keys();
-        for (const QString& id : oldActive) {
-            if (!m_activeStreams.contains(id)) {
-                int idx = findCameraIndex(id);
-                if (idx >= 0) stoppedIndices.append(idx);
-            }
-        }
-
         locker.unlock();
-
         emit availableDevicesChanged();
         emit activeStreamsChanged();
-
-        for (int idx : stoppedIndices) {
-            emit cameraStateChanged(idx, false);
-        }
     }
 }
 
