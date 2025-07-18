@@ -28,10 +28,8 @@ void GstStreamer::startStreaming(int deviceIndex) {
     }
 
     QString deviceId = cameras.at(deviceIndex).id();
-    QString host = m_host; // Локальная копия хоста
-    int port = m_port + m_cameraThreads.size();
 
-    // Проверка, не запущен ли уже поток для этой камеры
+    // Проверка на уже запущенный поток
     for (const auto& ct : m_cameraThreads) {
         if (ct.deviceId == deviceId) {
             emit errorOccurred("Camera already streaming");
@@ -39,39 +37,35 @@ void GstStreamer::startStreaming(int deviceIndex) {
         }
     }
 
-    QThread* thread = new QThread();
-    CameraWorker* worker = new CameraWorker(deviceId, host, port);
+    // Уникальный порт для каждого потока
+    int port = m_port + m_cameraThreads.size();
 
+    QThread* thread = new QThread();
+    CameraWorker* worker = new CameraWorker(deviceId, m_host, port);
     worker->moveToThread(thread);
 
+    // Подключаем сигналы только после перемещения в поток
     connect(thread, &QThread::started, worker, &CameraWorker::startStreaming);
-    connect(worker, &CameraWorker::streamingStateChanged, this, [this, deviceIndex, deviceId, host, port](bool isStreaming) {
-        QMutexLocker locker(&m_mutex);
-        if (isStreaming) {
-            const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
-            QString cameraName;
-            for (const auto& camera : cameras) {
-                if (camera.id() == deviceId) {
-                    cameraName = camera.description();
-                    break;
+    connect(worker, &CameraWorker::streamingStateChanged, this,
+            [this, deviceIndex, deviceId](bool isStreaming) {
+                QMutexLocker locker(&m_mutex);
+                if (isStreaming) {
+                    // Добавляем информацию о потоке
+                    QVariantMap streamInfo;
+                    streamInfo["name"] = m_availableDevices.at(deviceIndex);
+                    streamInfo["address"] = QString("%1:%2").arg(m_host).arg(m_port + deviceIndex);
+                    streamInfo["deviceId"] = deviceId;
+                    m_activeStreams[deviceId] = streamInfo;
+                } else {
+                    m_activeStreams.remove(deviceId);
                 }
-            }
+                emit activeStreamsChanged();
+                emit cameraStateChanged(deviceIndex, isStreaming);
+            });
 
-            QVariantMap streamInfo;
-            streamInfo["name"] = cameraName;
-            streamInfo["address"] = QString("%1:%2").arg(host).arg(port);
-            streamInfo["deviceId"] = deviceId;
-            m_activeStreams[deviceId] = streamInfo;
-            emit activeStreamsChanged();
-            emit cameraStateChanged(deviceIndex, true);
-        } else {
-            m_activeStreams.remove(deviceId);
-            emit activeStreamsChanged();
-            emit cameraStateChanged(deviceIndex, false);
-        }
-    });
     connect(worker, &CameraWorker::errorOccurred, this, &GstStreamer::errorOccurred);
     connect(thread, &QThread::finished, worker, &CameraWorker::deleteLater);
+    connect(thread, &QThread::finished, thread, &QThread::deleteLater);
 
     m_cameraThreads.append({thread, worker, deviceId});
     thread->start();

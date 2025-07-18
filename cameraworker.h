@@ -1,3 +1,4 @@
+// cameraworker.h
 #pragma once
 
 #include <QObject>
@@ -8,10 +9,10 @@
 #include <QMediaCaptureSession>
 #include <QVideoSink>
 #include <QMediaDevices>
-#include <QTimer>
 #include <QThread>
-#include <QEventLoop>
 #include <QDateTime>
+#include <QEventLoop>
+#include <QTimer>
 
 class CameraWorker : public QObject {
     Q_OBJECT
@@ -30,6 +31,7 @@ signals:
 
 private slots:
     void handleFrame(const QVideoFrame& frame);
+
 private:
     GstElement* m_pipeline = nullptr;
     GstElement* m_appsrc = nullptr;
@@ -39,16 +41,15 @@ private:
     QMutex m_mutex;
     QCamera* m_camera = nullptr;
     QMediaCaptureSession m_captureSession;
-    QVideoSink m_videoSink;
+    QVideoSink* m_videoSink = nullptr;
     bool m_isStreaming = false;
     guint64 m_frameCount = 0;
 
-    void ensureInWorkerThread() {
-        if (QThread::currentThread() != this->thread()) {
-            qCritical() << "Method called from wrong thread!";
-            Q_ASSERT(false);
-        }
-    }
+    void cleanupPipeline();
+    void cleanupCamera();
+    void ensureInWorkerThread();
+    bool setupPipeline();
+    bool setupCamera();
 
     static void onBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
     static void onNeedData(GstElement* appsrc, guint size, gpointer data);
