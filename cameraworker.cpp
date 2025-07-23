@@ -5,6 +5,10 @@ CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int por
     : QObject(parent), m_deviceId(deviceId), m_host(host), m_port(port),
     m_lastFrameTime(std::chrono::steady_clock::now())
 {
+    m_thread = new QThread();
+    moveToThread(m_thread);
+    m_thread->start();
+
     m_videoSink = new QVideoSink(this); // Создаем новый QVideoSink
     connect(m_videoSink, &QVideoSink::videoFrameChanged,
             this, &CameraWorker::handleFrame, Qt::DirectConnection);
@@ -17,6 +21,9 @@ CameraWorker::~CameraWorker()
         delete m_videoSink;
         m_videoSink = nullptr;
     }
+
+    m_thread->quit();
+    m_thread->wait();
 }
 
 void CameraWorker::startStreaming()

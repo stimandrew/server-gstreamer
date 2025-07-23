@@ -40,17 +40,14 @@ void GstStreamer::startStreaming(int deviceIndex) {
     // Уникальный порт для каждого потока
     int port = m_port + m_cameraThreads.size();
 
-    QThread* thread = new QThread();
+    // Создаем worker (поток создается внутри него)
     CameraWorker* worker = new CameraWorker(deviceId, m_host, port);
-    worker->moveToThread(thread);
 
-    // Подключаем сигналы только после перемещения в поток
-    connect(thread, &QThread::started, worker, &CameraWorker::startStreaming);
+    // Подключаем сигналы
     connect(worker, &CameraWorker::streamingStateChanged, this,
             [this, deviceIndex, deviceId](bool isStreaming) {
                 QMutexLocker locker(&m_mutex);
                 if (isStreaming) {
-                    // Добавляем информацию о потоке
                     QVariantMap streamInfo;
                     streamInfo["name"] = m_availableDevices.at(deviceIndex);
                     streamInfo["address"] = QString("%1:%2").arg(m_host).arg(m_port + deviceIndex);
@@ -64,14 +61,17 @@ void GstStreamer::startStreaming(int deviceIndex) {
             });
 
     connect(worker, &CameraWorker::errorOccurred, this, &GstStreamer::errorOccurred);
-    connect(thread, &QThread::finished, worker, &CameraWorker::deleteLater);
-    connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+    connect(worker, &CameraWorker::destroyed, this, [this, deviceId]() {
+        QMutexLocker locker(&m_mutex);
+        m_activeStreams.remove(deviceId);
+        emit activeStreamsChanged();
+    });
 
-    m_cameraThreads.append({thread, worker, deviceId});
-    thread->start();
+    QMetaObject::invokeMethod(worker, "startStreaming", Qt::QueuedConnection);
+
+    m_cameraThreads.append({nullptr, worker, deviceId});
 }
 
-// Останавливает поток с камеры по указанному индексу
 void GstStreamer::stopStreaming(int deviceIndex) {
     QMutexLocker locker(&m_mutex);
     if (deviceIndex < 0 || deviceIndex >= m_availableDevices.size()) {
@@ -91,26 +91,11 @@ void GstStreamer::stopStreaming(int deviceIndex) {
         if (m_cameraThreads[i].deviceId == deviceId) {
             auto& ct = m_cameraThreads[i];
 
-            // Stop worker in its own thread
+            // Останавливаем worker (поток уничтожится в деструкторе worker)
             QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
-
-            // Clean up connections
-            disconnect(ct.worker, nullptr, this, nullptr);
-            disconnect(ct.thread, nullptr, ct.worker, nullptr);
-
-            // Quit thread and wait for completion
-            ct.thread->quit();
-            if (!ct.thread->wait(2000)) {  // Increased timeout
-                qWarning() << "Forcing thread termination";
-                ct.thread->terminate();
-                ct.thread->wait();
-            }
-
-            // Clean up objects
             ct.worker->deleteLater();
-            ct.thread->deleteLater();
 
-            // Remove from containers
+            // Удаляем из контейнеров
             m_cameraThreads.remove(i);
             m_activeStreams.remove(deviceId);
 
@@ -121,6 +106,7 @@ void GstStreamer::stopStreaming(int deviceIndex) {
         }
     }
 }
+
 
 // Останавливает все активные потоки
 void GstStreamer::stopAllStreams() {
@@ -138,25 +124,14 @@ void GstStreamer::stopAllStreams() {
         }
     }
 
-    // Stop all workers in their own threads first
+    // Stop all workers and let them clean up their own threads
     for (auto& ct : m_cameraThreads) {
-        QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
-    }
-
-    // Then clean up all threads
-    for (auto& ct : m_cameraThreads) {
+        // Disconnect all signals from worker to avoid any callbacks during cleanup
         disconnect(ct.worker, nullptr, this, nullptr);
-        disconnect(ct.thread, nullptr, nullptr, nullptr);
 
-        ct.thread->quit();
-        if (!ct.thread->wait(100)) {  // Increased timeout
-            qWarning() << "Forcing thread termination";
-            ct.thread->terminate();
-            ct.thread->wait();
-        }
-
+        // Stop the worker - thread will be cleaned up in worker's destructor
+        QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
         ct.worker->deleteLater();
-        ct.thread->deleteLater();
     }
 
     m_cameraThreads.clear();

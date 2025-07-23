@@ -45,6 +45,7 @@ private:
     bool m_isStreaming = false;
     guint64 m_frameCount = 0;
     std::chrono::steady_clock::time_point m_lastFrameTime;
+    QThread* m_thread = nullptr;
 
     void cleanupPipeline();
     void cleanupCamera();
