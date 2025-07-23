@@ -67,7 +67,11 @@ Window {
                     width: parent.width
                     clip: true
 
-                    delegate: RowLayout {
+                    delegate: ColumnLayout {
+                        width: cameraList.width
+                        spacing: 5
+
+                        RowLayout {
                         width: cameraList.width
                         spacing: 10
 
@@ -103,6 +107,46 @@ Window {
                                 streamer.captureCameraImage(index, ".")
                             }
                         }
+                    }
+
+                    // YOLO controls for each camera
+                    RowLayout {
+                        id: yoloControls
+                        Layout.fillWidth: true
+                        spacing: 10
+                        visible: streamer.isCameraActive(index)
+
+                        Label {
+                            text: "YOLO:"
+                            Layout.minimumWidth: 50
+                        }
+
+                        Button {
+                                text: "Load Model"
+                                onClicked: streamer.setYoloModelPath("yolo11n.rknn")
+                                Layout.fillWidth: true
+                            }
+
+                        Switch {
+                            id: yoloEnabledSwitch
+                            enabled: streamer.yoloModelPath !== ""
+                            onCheckedChanged: {
+                                if (yoloEnabledSwitch.enabled) {
+                                    streamer.setYoloEnabled(checked)
+                                }
+                            }
+                        }
+
+                        // Добавляем привязку к изменению состояния камеры
+                        Connections {
+                            target: streamer
+                            function onCameraStateChanged(deviceIndex, isActive) {
+                                if (deviceIndex === index) {
+                                    yoloControls.visible = isActive
+                                }
+                            }
+                        }
+                    }
                     }
                 }
 
