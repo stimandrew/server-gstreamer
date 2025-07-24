@@ -11,6 +11,20 @@ GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 GstStreamer::~GstStreamer()
 {
     stopAllStreams();
+    delete m_camera;
+}
+
+bool GstStreamer::yoloEnabled() const { return m_yoloEnabled; }
+QString GstStreamer::yoloModelPath() const { return m_yoloModelPath; }
+QVariantList GstStreamer::objects() const {
+    QVariantList list;
+    for (const auto &obj : m_objects) {
+        QVariantMap map;
+        map["rect"] = QVariant::fromValue(obj.first);
+        map["label"] = obj.second;
+        list.append(map);
+    }
+    return list;
 }
 
 // Запускает поток с камеры по указанному индексу
@@ -40,11 +54,10 @@ void GstStreamer::startStreaming(int deviceIndex) {
     // Уникальный порт для каждого потока
     int port = m_port + m_cameraThreads.size();
 
-    // Создаем worker (поток создается внутри него)
-    CameraWorker* worker = new CameraWorker(deviceId, m_host, port);
+    m_camera = new CameraWorker(deviceId, m_host, port);
 
     // Подключаем сигналы
-    connect(worker, &CameraWorker::streamingStateChanged, this,
+    connect(m_camera, &CameraWorker::streamingStateChanged, this,
             [this, deviceIndex, deviceId](bool isStreaming) {
                 QMutexLocker locker(&m_mutex);
                 if (isStreaming) {
@@ -60,16 +73,16 @@ void GstStreamer::startStreaming(int deviceIndex) {
                 emit cameraStateChanged(deviceIndex, isStreaming);
             });
 
-    connect(worker, &CameraWorker::errorOccurred, this, &GstStreamer::errorOccurred);
-    connect(worker, &CameraWorker::destroyed, this, [this, deviceId]() {
+    connect(m_camera, &CameraWorker::errorOccurred, this, &GstStreamer::errorOccurred);
+    connect(m_camera, &CameraWorker::destroyed, this, [this, deviceId]() {
         QMutexLocker locker(&m_mutex);
         m_activeStreams.remove(deviceId);
         emit activeStreamsChanged();
     });
 
-    QMetaObject::invokeMethod(worker, "startStreaming", Qt::QueuedConnection);
+    QMetaObject::invokeMethod(m_camera, "startStreaming", Qt::QueuedConnection);
 
-    m_cameraThreads.append({nullptr, worker, deviceId});
+    m_cameraThreads.append({nullptr, m_camera, deviceId});
 }
 
 void GstStreamer::stopStreaming(int deviceIndex) {
@@ -111,7 +124,6 @@ void GstStreamer::stopStreaming(int deviceIndex) {
 // Останавливает все активные потоки
 void GstStreamer::stopAllStreams() {
     QMutexLocker locker(&m_mutex);
-
     // Collect indices of active cameras before stopping
     QList<int> activeIndices;
     const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
@@ -300,6 +312,18 @@ void GstStreamer::updateActiveStreams()
     // Не требует реализации - обновляется через сигналы
 }
 
+void GstStreamer::resetCamera()
+{
+    if (m_camera) {
+        m_camera->stopStreaming();
+        disconnect(m_camera, nullptr, this, nullptr);
+        delete m_camera;
+        m_camera = nullptr;
+        m_objects.clear();
+        emit objectsChanged(objects());
+    }
+}
+
 
 void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath) {
     QMutexLocker locker(&m_mutex);
@@ -348,5 +372,26 @@ void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath) {
         connect(thread, &QThread::finished, thread, &QThread::deleteLater);
 
         thread->start();
+    }
+}
+
+void GstStreamer::setYoloEnabled(bool enabled) {
+    if (m_yoloEnabled != enabled) {
+        m_yoloEnabled = enabled;
+        if (m_camera) {
+            m_camera->setYoloEnabled(enabled);
+        }
+        emit yoloEnabledChanged(enabled);
+    }
+}
+
+void GstStreamer::setYoloModelPath(const QString& path) {
+    if (m_yoloModelPath != path) {
+        m_yoloModelPath = path;
+        if (m_camera) {
+            m_camera->setYoloModelPath(path);
+        }
+        emit yoloModelPathChanged(path);
+        emit objectsChanged(objects());
     }
 }

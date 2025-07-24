@@ -15,7 +15,6 @@
 #include "cameraworker.h"
 #include "cameracaptureworker.h"
 
-// Класс для управления видеопотоками с камер через GStreamer
 class GstStreamer : public QObject
 {
     Q_OBJECT
@@ -23,90 +22,66 @@ class GstStreamer : public QObject
     Q_PROPERTY(int port READ port WRITE setPort NOTIFY portChanged)
     Q_PROPERTY(QStringList availableDevices READ availableDevices NOTIFY availableDevicesChanged)
     Q_PROPERTY(QVariantMap activeStreams READ activeStreams NOTIFY activeStreamsChanged)
+    Q_PROPERTY(bool yoloEnabled READ yoloEnabled WRITE setYoloEnabled NOTIFY yoloEnabledChanged)
+    Q_PROPERTY(QString yoloModelPath READ yoloModelPath WRITE setYoloModelPath NOTIFY yoloModelPathChanged)
+    Q_PROPERTY(QVariantList objects READ objects NOTIFY objectsChanged)
 
 public:
-    // Конструктор класса
     explicit GstStreamer(QObject* parent = nullptr);
-
-    // Деструктор класса
     ~GstStreamer();
-
-    // Запускает поток с камеры по указанному индексу
     Q_INVOKABLE void startStreaming(int deviceIndex);
-
-    // Останавливает поток с камеры по указанному индексу
     Q_INVOKABLE void stopStreaming(int deviceIndex);
-
-    // Останавливает все активные потоки
     Q_INVOKABLE void stopAllStreams();
-
-    // Проверяет, активна ли камера по указанному индексу
     Q_INVOKABLE bool isCameraActive(int deviceIndex);
-
-    // Находит индекс камеры по её идентификатору
     Q_INVOKABLE int findCameraIndex(const QString& deviceId);
-
     Q_INVOKABLE void captureCameraImage(int deviceIndex, const QString& savePath = "");
+    Q_INVOKABLE void setYoloEnabled(bool enabled);
+    Q_INVOKABLE void setYoloModelPath(const QString& path);
 
-    // Возвращает список доступных устройств
     QStringList availableDevices() const;
-
-    // Возвращает информацию о активных потоках
     QVariantMap activeStreams() const;
-
-    // Возвращает текущий хост для потоков
     QString host() const;
-
-    // Устанавливает хост для потоков
     void setHost(const QString& host);
-
-    // Возвращает текущий порт для потоков
     int port() const;
-
-    // Устанавливает порт для потоков
     void setPort(int port);
+    bool yoloEnabled() const;
+    QString yoloModelPath() const;
+    QVariantList objects() const;
 
 signals:
-    // Сигнал об ошибке
     void errorOccurred(const QString& message);
-
-    // Сигнал об изменении хоста
     void hostChanged();
-
-    // Сигнал об изменении порта
     void portChanged();
-
-    // Сигнал об изменении списка доступных устройств
     void availableDevicesChanged();
-
-    // Сигнал об изменении списка активных потоков
     void activeStreamsChanged();
-
-    // Сигнал об изменении состояния камеры
     void cameraStateChanged(int deviceIndex, bool isActive);
+    void yoloEnabledChanged(bool enabled);
+    void yoloModelPathChanged(const QString& path);
+    void objectsChanged(const QVariantList& objects);
 
 public slots:
-    // Обновляет список доступных устройств
     void refreshAvailableDevices();
 
 private:
-    // Структура для хранения информации о потоке камеры
     struct CameraThread {
         QThread* thread;
         CameraWorker* worker;
         QString deviceId;
     };
 
-    QString m_host = "192.168.1.2"; // Хост по умолчанию
-    int m_port = 5000;              // Порт по умолчанию
-    QStringList m_availableDevices; // Список доступных устройств
-    QMap<QString, QVariantMap> m_activeStreams; // Активные потоки
-    QVector<CameraThread> m_cameraThreads; // Потоки камер
-    QMutex m_mutex; // Мьютекс для синхронизации
+    QString m_host = "192.168.1.2";
+    int m_port = 5000;
+    QStringList m_availableDevices;
+    QMap<QString, QVariantMap> m_activeStreams;
+    QVector<CameraThread> m_cameraThreads;
+    QMutex m_mutex;
+    CameraWorker* m_camera = nullptr;
 
-    // Обновляет список доступных устройств
+    bool m_yoloEnabled = false;
+    QString m_yoloModelPath;
+    QList<QPair<QRect, QString>> m_objects;
+
     void updateAvailableDevices();
-
-    // Обновляет список активных потоков
     void updateActiveStreams();
+    void resetCamera();
 };

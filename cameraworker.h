@@ -13,24 +13,33 @@
 #include <QDateTime>
 #include <QEventLoop>
 #include <QTimer>
+#include <QQueue>
+#include <QWaitCondition>
+#include "yolo11.h"
 
 class CameraWorker : public QObject {
     Q_OBJECT
 public:
     CameraWorker(const QString& deviceId, const QString& host, int port, QObject* parent = nullptr);
     ~CameraWorker();
+    void init();
 
 public slots:
     void startStreaming();
     void stopStreaming();
     void captureFrame(const QString& savePath);
+    void setYoloEnabled(bool enabled);
+    void setYoloModelPath(const QString& path);
 
 signals:
     void errorOccurred(const QString& message);
     void streamingStateChanged(bool isStreaming);
+    void newFrame(const QImage &frame);
+    void newObjects(const QList<QPair<QRect, QString>>& objects);
 
 private slots:
     void handleFrame(const QVideoFrame& frame);
+    void processNextFrame();
 
 private:
     GstElement* m_pipeline = nullptr;
@@ -46,6 +55,15 @@ private:
     guint64 m_frameCount = 0;
     std::chrono::steady_clock::time_point m_lastFrameTime;
     QThread* m_thread = nullptr;
+    QThread* m_yoloThread = nullptr;
+    QTimer* m_yoloTimer;
+    mutable QMutex m_cameraMutex;
+    bool m_yoloEnabled = false;
+    bool m_yoloInitialized = false;
+    mutable QMutex m_yoloMutex;
+    rknn_app_context_t m_rknnAppCtx;
+    QQueue<QImage> frameQueue;
+    QMutex queueMutex;
 
     void cleanupPipeline();
     void cleanupCamera();
@@ -53,6 +71,11 @@ private:
     bool setupPipeline();
     bool setupCamera();
     QImage processFrame(const QVideoFrame& frame);
+    void processFrameWithRGA(const QImage &frame);
+
+    QMutex m_yoloProcessingMutex;
+    QWaitCondition m_yoloProcessingCondition;
+    bool m_yoloProcessing = false;
 
     static void onBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
     static void onNeedData(GstElement* appsrc, guint size, gpointer data);

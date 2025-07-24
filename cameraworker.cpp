@@ -7,23 +7,58 @@ CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int por
 {
     m_thread = new QThread();
     moveToThread(m_thread);
+    connect(m_thread, &QThread::started, this, &CameraWorker::init);
     m_thread->start();
-
-    m_videoSink = new QVideoSink(this); // Создаем новый QVideoSink
-    connect(m_videoSink, &QVideoSink::videoFrameChanged,
-            this, &CameraWorker::handleFrame, Qt::DirectConnection);
 }
 
 CameraWorker::~CameraWorker()
 {
     stopStreaming();
+
     if (m_videoSink) {
-        delete m_videoSink;
-        m_videoSink = nullptr;
+        m_videoSink->deleteLater();
     }
 
-    m_thread->quit();
-    m_thread->wait();
+    if (m_yoloTimer) {
+        m_yoloTimer->stop();
+        m_yoloTimer->deleteLater();
+    }
+
+    if (m_yoloThread) {
+        m_yoloThread->quit();
+        if (!m_yoloThread->wait(1000)) {
+            m_yoloThread->terminate();
+            m_yoloThread->wait();
+        }
+        m_yoloThread->deleteLater();
+    }
+
+    if (m_thread) {
+        m_thread->quit();
+        if (!m_thread->wait(1000)) {
+            m_thread->terminate();
+            m_thread->wait();
+        }
+        m_thread->deleteLater();
+    }
+}
+
+void CameraWorker::init()
+{
+    ensureInWorkerThread();
+
+    // Инициализация объектов в правильном потоке
+    m_videoSink = new QVideoSink(this);
+    connect(m_videoSink, &QVideoSink::videoFrameChanged,
+            this, &CameraWorker::handleFrame, Qt::DirectConnection);
+
+    m_yoloThread = new QThread();
+    m_yoloThread->start();
+
+    m_yoloTimer = new QTimer();
+    m_yoloTimer->setInterval(1000); // 1 секунда
+    m_yoloTimer->moveToThread(m_yoloThread);
+    connect(m_yoloTimer, &QTimer::timeout, this, &CameraWorker::processNextFrame);
 }
 
 void CameraWorker::startStreaming()
@@ -51,6 +86,7 @@ void CameraWorker::startStreaming()
 
 void CameraWorker::stopStreaming()
 {
+    qDebug() << "void CameraWorker::stopStreaming()";
     ensureInWorkerThread();
     QMutexLocker locker(&m_mutex);
 
@@ -58,12 +94,14 @@ void CameraWorker::stopStreaming()
 
     m_isStreaming = false;
 
-    // Отключаем обработчик кадров
+    // Отключаем обработчик кадров и удаляем QVideoSink
     if (m_videoSink) {
         disconnect(m_videoSink, &QVideoSink::videoFrameChanged, this, &CameraWorker::handleFrame);
+        delete m_videoSink;
+        m_videoSink = nullptr;
     }
 
-    // Останавливаем камеру
+    // Остальная логика остановки...
     if (m_camera && m_camera->isActive()) {
         m_camera->stop();
         QEventLoop loop;
@@ -71,7 +109,6 @@ void CameraWorker::stopStreaming()
         loop.exec();
     }
 
-    // Останавливаем GStreamer pipeline
     if (m_pipeline) {
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_element_get_state(m_pipeline, nullptr, nullptr, GST_CLOCK_TIME_NONE);
@@ -136,12 +173,14 @@ QImage CameraWorker::processFrame(const QVideoFrame &frame)
         }
         m_lastFrameTime = now;
     }
+    m_lastFrameTime = now;
 
     return scaledImage;
 }
 
 bool CameraWorker::setupPipeline()
 {
+    ensureInWorkerThread();
     QString pipelineStr = QString(
                               "appsrc name=source is-live=true format=time do-timestamp=true "
                               "caps=video/x-raw,format=RGBA,width=1280,height=720,framerate=30/1 ! "
@@ -217,7 +256,6 @@ void CameraWorker::cleanupCamera()
 void CameraWorker::handleFrame(const QVideoFrame& frame)
 {
     QMutexLocker locker(&m_mutex);
-
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
     QImage scaledImage = processFrame(frame);
@@ -226,6 +264,13 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
     // Конвертируем в RGBA8888
     QImage rgbaImage = scaledImage.convertToFormat(QImage::Format_RGBA8888);
     if (rgbaImage.isNull()) return;
+
+    QImage rgbImage = scaledImage.convertToFormat(QImage::Format_RGB888);
+    if (m_yoloEnabled && m_yoloInitialized && !rgbImage.isNull() && !rgbImage.size().isEmpty()) {
+        if (frameQueue.size() < 3) {
+            frameQueue.enqueue(rgbImage);
+        }
+    }
 
     GstBuffer* buffer = gst_buffer_new_allocate(nullptr, rgbaImage.sizeInBytes(), nullptr);
     GstMapInfo map;
@@ -279,7 +324,42 @@ void CameraWorker::captureFrame(const QString& savePath) {
     emit errorOccurred(QString("Image captured: %1").arg(fileName));
 }
 
+void CameraWorker::setYoloEnabled(bool enabled)
+{
+    QMutexLocker locker(&m_cameraMutex);
+
+    m_yoloEnabled = enabled && m_yoloInitialized;
+    if (m_yoloEnabled) {
+        QMetaObject::invokeMethod(m_yoloTimer, "start");
+    } else {
+        QMetaObject::invokeMethod(m_yoloTimer, "stop");
+        queueMutex.lock();
+        frameQueue.clear();
+        queueMutex.unlock();
+    }
+
+}
+
+void CameraWorker::setYoloModelPath(const QString &path)
+{
+    QMutexLocker locker(&m_cameraMutex);
+    if (!path.isEmpty()) {
+        init_post_process();
+        int ret = init_yolo11_model(path.toStdString().c_str(), &m_rknnAppCtx);
+        if (ret != 0) {
+            qWarning() << "Failed to initialize YOLO model";
+            m_yoloInitialized = false;
+            m_yoloEnabled = false;
+        } else {
+            m_yoloInitialized = true;
+        }
+    }
+
+}
+
 void CameraWorker::ensureInWorkerThread() {
+    qDebug() << "Current thread:" << QThread::currentThread();
+    qDebug() << "Worker thread:" << this->thread();
     if (QThread::currentThread() != this->thread()) {
         qCritical() << "Method called from wrong thread!";
         Q_ASSERT(false);
@@ -320,4 +400,87 @@ void CameraWorker::onEnoughData(GstElement* appsrc, gpointer data) {
     Q_UNUSED(appsrc);
     CameraWorker* self = static_cast<CameraWorker*>(data);
     // Обработка сигнала о достаточности данных
+}
+
+void CameraWorker::processNextFrame()
+{
+    QMutexLocker locker(&m_yoloMutex);
+    qDebug() << "void CameraWorker::processNextFrame()";
+    if (!frameQueue.isEmpty()) {
+        QImage frame;
+        frame = frameQueue.dequeue();
+        frameQueue.clear(); // Обрабатываем только последний кадр
+        qDebug() << "processFrameWithRGA(frame)" << "Time:"
+                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+        qDebug() << "frame.format" << frame.format() << "Time:"
+                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+        qDebug() << "frame.size" << frame.size() << "Time:"
+                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+        qDebug() << "frame.height" << frame.height() << "Time:"
+                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+        qDebug() << "frame.width" << frame.width() << "Time:"
+                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+        processFrameWithRGA(frame.copy());
+    }
+}
+
+void CameraWorker::processFrameWithRGA(const QImage &frame) {
+    QMutexLocker locker(&m_yoloProcessingMutex);
+    while (m_yoloProcessing) {
+        m_yoloProcessingCondition.wait(&m_yoloProcessingMutex);
+    }
+
+    m_yoloProcessing = true;
+    locker.unlock();
+    qDebug() << "void CameraWorker::processFrameWithRGA(const QImage &frame)";
+    if (!m_yoloInitialized) {
+        qWarning() << "YOLO model not initialized";
+        return;
+    }
+
+    image_buffer_t src_image;
+    memset(&src_image, 0, sizeof(image_buffer_t));
+
+    QImage converted = frame.convertToFormat(QImage::Format_RGB888);
+    src_image.width = converted.width();
+    src_image.height = converted.height();
+    src_image.format = IMAGE_FORMAT_RGB888;
+    src_image.size = converted.width() * converted.height() * 3;
+    src_image.virt_addr = (unsigned char*)malloc(src_image.size);
+    memcpy(src_image.virt_addr, converted.bits(), src_image.size);
+
+    object_detect_result_list od_results;
+    memset(&od_results, 0, sizeof(od_results));
+
+    int ret = inference_yolo11_model(&m_rknnAppCtx, &src_image, &od_results);
+    if (ret != 0) {
+        qWarning() << "YOLO inference failed";
+        free(src_image.virt_addr);
+        return;
+    }
+
+    QList<QPair<QRect, QString>> objects;
+    for (int i = 0; i < od_results.count; i++) {
+        object_detect_result *det_result = &(od_results.results[i]);
+        QRect rect(
+            det_result->box.left,
+            det_result->box.top,
+            det_result->box.right - det_result->box.left,
+            det_result->box.bottom - det_result->box.top
+            );
+
+        const char* cls_name = coco_cls_to_name(det_result->cls_id);
+        QString label = QString("%1 %2%").arg(QString::fromUtf8(cls_name))
+                            .arg(QString::number(det_result->prop * 100, 'f', 0));
+
+        objects.append(qMakePair(rect, label));
+        qDebug() << "Detected:" << label << "at:" << rect << "Time:"
+                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+    }
+    emit newObjects(objects);
+    free(src_image.virt_addr);  // Освобождаем память в любом случае
+
+    locker.relock();
+    m_yoloProcessing = false;
+    m_yoloProcessingCondition.wakeAll();
 }
