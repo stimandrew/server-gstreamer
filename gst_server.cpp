@@ -231,7 +231,7 @@ void GstStreamer::refreshAvailableDevices() {
 void GstStreamer::updateAvailableDevices() {
     QMutexLocker locker(&m_mutex);
 
-    // Получаем текущие камеры
+    // Получаем текущий список камер
     const QList<QCameraDevice> cameras = QMediaDevices::videoInputs();
 
     // Проверяем удаленные камеры
@@ -239,6 +239,7 @@ void GstStreamer::updateAvailableDevices() {
         bool found = false;
         QString currentId = m_cameraThreads[i].deviceId;
 
+        // Ищем камеру в текущем списке
         for (const QCameraDevice& camera : cameras) {
             if (camera.id() == currentId) {
                 found = true;
@@ -250,29 +251,38 @@ void GstStreamer::updateAvailableDevices() {
             // Камера удалена - останавливаем поток
             auto& ct = m_cameraThreads[i];
 
-            // Отключаем все сигналы от worker и thread
-            disconnect(ct.worker, nullptr, this, nullptr);
-            disconnect(ct.thread, nullptr, nullptr, nullptr);
+            // 1. Останавливаем worker
+            if (ct.worker) {
+                // Отключаем все сигналы
+                disconnect(ct.worker, nullptr, this, nullptr);
 
-            // Останавливаем worker в его собственном потоке
-            QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
-
-            // Завершаем поток
-            ct.thread->quit();
-            if (!ct.thread->wait(500)) {
-                ct.thread->terminate();
-                ct.thread->wait();
+                // Если worker в своем потоке - останавливаем правильно
+                if (ct.worker->thread() && ct.worker->thread()->isRunning()) {
+                    QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
+                    ct.worker->deleteLater();
+                } else {
+                    ct.worker->deleteLater();
+                }
             }
 
-            // Удаляем объекты
-            ct.worker->deleteLater();
-            ct.thread->deleteLater();
+            // 2. Останавливаем поток
+            if (ct.thread) {
+                if (ct.thread->isRunning()) {
+                    ct.thread->quit();
+                    if (!ct.thread->wait(500)) {
+                        qWarning() << "Thread termination timeout, forcing...";
+                        ct.thread->terminate();
+                        ct.thread->wait();
+                    }
+                }
+                ct.thread->deleteLater();
+            }
 
-            // Удаляем из контейнеров
-            m_cameraThreads.remove(i);
+            // 3. Удаляем из контейнеров
             m_activeStreams.remove(currentId);
+            m_cameraThreads.remove(i);
 
-            // Находим индекс камеры для уведомления UI
+            // 4. Находим индекс камеры для уведомления UI
             int idx = -1;
             for (int j = 0; j < m_availableDevices.size(); ++j) {
                 if (m_availableDevices[j].contains(currentId)) {
@@ -303,6 +313,7 @@ void GstStreamer::updateAvailableDevices() {
         locker.unlock();
         emit availableDevicesChanged();
         emit activeStreamsChanged();
+        locker.relock();
     }
 }
 
