@@ -130,9 +130,32 @@ Window {
                         Switch {
                             id: yoloEnabledSwitch
                             enabled: streamer.yoloModelPath !== "" && streamer.isCameraActive(index)
+                            checked: streamer.yoloEnabled && streamer.isCameraActive(index)
                             onCheckedChanged: {
-                                if (yoloEnabledSwitch.enabled) {
+                                if (enabled) {
                                     streamer.setYoloEnabled(checked)
+                                } else {
+                                    checked = false
+                                }
+                            }
+
+                            // Добавляем привязку к изменению состояния камеры
+                            Connections {
+                                target: streamer
+                                function onCameraStateChanged(deviceIndex, isActive) {
+                                    if (deviceIndex === index) {
+                                        yoloEnabledSwitch.enabled = isActive && streamer.yoloModelPath !== ""
+                                        if (!isActive) {
+                                            yoloEnabledSwitch.checked = false
+                                        }
+                                    }
+                                }
+                            }
+                            // Добавляем привязку к изменению пути модели YOLO
+                            Connections {
+                                target: streamer
+                                function onYoloModelPathChanged() {
+                                    yoloEnabledSwitch.enabled = streamer.isCameraActive(index) && streamer.yoloModelPath !== ""
                                 }
                             }
                         }

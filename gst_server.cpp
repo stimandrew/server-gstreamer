@@ -55,6 +55,12 @@ void GstStreamer::startStreaming(int deviceIndex) {
 
     m_camera = new CameraWorker(deviceId, m_host, port);
 
+    connect(m_camera, &CameraWorker::newObjects, this, [this, deviceId](const QList<QPair<QRect, QString>>& objects) {
+        QMutexLocker locker(&m_mutex);
+        m_objects = objects;
+        emit objectsChanged(this->objects());
+    });
+
     // Подключаем сигналы
     connect(m_camera, &CameraWorker::streamingStateChanged, this,
             [this, deviceIndex, deviceId](bool isStreaming) {
@@ -103,6 +109,10 @@ void GstStreamer::stopStreaming(int deviceIndex) {
         if (m_cameraThreads[i].deviceId == deviceId) {
             auto& ct = m_cameraThreads[i];
 
+            if (ct.worker) {
+                QMetaObject::invokeMethod(ct.worker, "setYoloEnabled", Qt::BlockingQueuedConnection, Q_ARG(bool, false));
+            }
+
             // Останавливаем worker (поток уничтожится в деструкторе worker)
             QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
             ct.worker->deleteLater();
@@ -139,6 +149,10 @@ void GstStreamer::stopAllStreams() {
     for (auto& ct : m_cameraThreads) {
         // Disconnect all signals from worker to avoid any callbacks during cleanup
         disconnect(ct.worker, nullptr, this, nullptr);
+
+        if (ct.worker) {
+            QMetaObject::invokeMethod(ct.worker, "setYoloEnabled", Qt::BlockingQueuedConnection, Q_ARG(bool, false));
+        }
 
         // Stop the worker - thread will be cleaned up in worker's destructor
         QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
@@ -386,18 +400,24 @@ void GstStreamer::captureCameraImage(int deviceIndex, const QString& savePath) {
 }
 
 void GstStreamer::setYoloEnabled(bool enabled) {
-    if (m_yoloEnabled != enabled) {
-        m_yoloEnabled = enabled;
-        if (m_camera) {
-            m_camera->setYoloEnabled(enabled);
-        }
-        emit yoloEnabledChanged(enabled);
+    qDebug() << "void GstStreamer::setYoloEnabled(bool enabled)";
+    qDebug() << "m_yoloEnabled = " << m_yoloEnabled;
+    qDebug() << "enabled = " << enabled;
+    m_yoloEnabled = enabled;
+    qDebug() << "m_yoloEnabled = " << m_yoloEnabled;
+    if (m_camera) {
+        m_camera->setYoloEnabled(enabled);
     }
+    emit yoloEnabledChanged(enabled);
 }
 
 void GstStreamer::setYoloModelPath(const QString& path) {
-    if (m_yoloModelPath != path) {
+    qDebug() << "void GstStreamer::setYoloModelPath(const QString& path)";
+    qDebug() << "m_yoloModelPath = " << m_yoloModelPath;
+    qDebug() << "path = " << path;
+    if (path != "") {
         m_yoloModelPath = path;
+        qDebug() << "m_yoloModelPath = " << m_yoloModelPath;
         if (m_camera) {
             m_camera->setYoloModelPath(path);
         }

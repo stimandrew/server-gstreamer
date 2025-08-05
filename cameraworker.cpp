@@ -267,7 +267,10 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
     QImage rgbImage = scaledImage.convertToFormat(QImage::Format_RGB888);
     if (m_yoloEnabled && m_yoloInitialized && !rgbImage.isNull() && !rgbImage.size().isEmpty()) {
         if (frameQueue.size() < 3) {
-            frameQueue.enqueue(rgbImage);
+            FrameData data;
+            data.frame = rgbImage;
+            data.deviceId = m_deviceId; // Сохраняем идентификатор камеры
+            frameQueue.enqueue(data);
         }
     }
 
@@ -401,18 +404,16 @@ void CameraWorker::onEnoughData(GstElement* appsrc, gpointer data) {
     // Обработка сигнала о достаточности данных
 }
 
-void CameraWorker::processNextFrame()
-{
+void CameraWorker::processNextFrame() {
     QMutexLocker locker(&m_yoloMutex);
     if (!frameQueue.isEmpty()) {
-        QImage frame;
-        frame = frameQueue.dequeue();
+        FrameData data = frameQueue.dequeue();
         frameQueue.clear();
-        processFrameWithRGA(frame.copy());
+        processFrameWithRGA(data.frame, data.deviceId); // Передаем кадр и deviceId
     }
 }
 
-void CameraWorker::processFrameWithRGA(const QImage &frame) {
+void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId) {
     QMutexLocker locker(&m_yoloProcessingMutex);
     while (m_yoloProcessing) {
         m_yoloProcessingCondition.wait(&m_yoloProcessingMutex);
@@ -420,6 +421,7 @@ void CameraWorker::processFrameWithRGA(const QImage &frame) {
 
     m_yoloProcessing = true;
     locker.unlock();
+
     if (!m_yoloInitialized) {
         qWarning() << "YOLO model not initialized";
         return;
@@ -457,13 +459,16 @@ void CameraWorker::processFrameWithRGA(const QImage &frame) {
             );
 
         const char* cls_name = coco_cls_to_name(det_result->cls_id);
-        QString label = QString("%1 %2%").arg(QString::fromUtf8(cls_name))
-                            .arg(QString::number(det_result->prop * 100, 'f', 0));
+        QString label = QString("%1 %2% (Camera: %3)")
+                            .arg(QString::fromUtf8(cls_name))
+                            .arg(QString::number(det_result->prop * 100, 'f', 0))
+                            .arg(sourceDeviceId); // Добавляем идентификатор камеры в метку
 
         objects.append(qMakePair(rect, label));
         qDebug() << "Detected:" << label << "at:" << rect << "Time:"
                  << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
     }
+
     emit newObjects(objects);
     free(src_image.virt_addr);
 

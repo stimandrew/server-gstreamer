@@ -62,7 +62,6 @@ private:
     bool m_yoloInitialized = false;
     mutable QMutex m_yoloMutex;
     rknn_app_context_t m_rknnAppCtx;
-    QQueue<QImage> frameQueue;
     QMutex queueMutex;
 
     void cleanupPipeline();
@@ -71,7 +70,13 @@ private:
     bool setupPipeline();
     bool setupCamera();
     QImage processFrame(const QVideoFrame& frame);
-    void processFrameWithRGA(const QImage &frame);
+    void processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId);
+
+    struct FrameData {
+        QImage frame;
+        QString deviceId;
+    };
+    QQueue<FrameData> frameQueue;
 
     QMutex m_yoloProcessingMutex;
     QWaitCondition m_yoloProcessingCondition;
