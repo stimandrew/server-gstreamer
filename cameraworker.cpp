@@ -68,7 +68,6 @@ void CameraWorker::init()
 
 void CameraWorker::startStreaming()
 {
-    ensureInWorkerThread();
     QMutexLocker locker(&m_mutex);
 
     if (m_isStreaming) {
@@ -181,7 +180,6 @@ QImage CameraWorker::processFrame(const QVideoFrame &frame)
 
 bool CameraWorker::setupPipeline()
 {
-    ensureInWorkerThread();
     QString pipelineStr = QString(
                               "appsrc name=source is-live=true format=time do-timestamp=true "
                               "caps=video/x-raw,format=RGBA,width=1280,height=720,framerate=30/1 ! "
@@ -232,7 +230,6 @@ bool CameraWorker::setupPipeline()
 
 void CameraWorker::cleanupPipeline()
 {
-    ensureInWorkerThread();
     if (m_appsrc) {
         g_signal_handlers_disconnect_by_data(m_appsrc, this);
         gst_object_unref(m_appsrc);
@@ -248,7 +245,6 @@ void CameraWorker::cleanupPipeline()
 
 void CameraWorker::cleanupCamera()
 {
-    ensureInWorkerThread();
     if (m_camera) {
         m_camera->stop();
         delete m_camera;
@@ -258,7 +254,6 @@ void CameraWorker::cleanupCamera()
 
 void CameraWorker::handleFrame(const QVideoFrame& frame)
 {
-    ensureInWorkerThread();
     QMutexLocker locker(&m_mutex);
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
