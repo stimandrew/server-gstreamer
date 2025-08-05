@@ -6,6 +6,7 @@
 #include <gst/gst.h>
 #include <gst/app/app.h>
 #include <QCamera>
+#include <QCameraFormat>
 #include <QMediaCaptureSession>
 #include <QVideoSink>
 #include <QMediaDevices>

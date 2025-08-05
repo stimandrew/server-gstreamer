@@ -126,6 +126,35 @@ bool CameraWorker::setupCamera()
     for (const QCameraDevice& camera : cameras) {
         if (camera.id() == m_deviceId) {
             m_camera = new QCamera(camera);
+
+            // Получаем список поддерживаемых форматов
+            const auto formats = camera.videoFormats();
+
+            // Ищем формат с разрешением 1280x720
+            QCameraFormat selectedFormat;
+            bool formatFound = false;
+            for (const auto& format : formats) {
+                if (format.resolution() == QSize(1280, 720)) {
+                    selectedFormat = format;
+                    formatFound = true;
+                    qDebug() << "selectedFormat.resolution().height() = " << selectedFormat.resolution().height();
+                    qDebug() << "selectedFormat.resolution().width() = " << selectedFormat.resolution().width();
+                    break;
+                }
+            }
+
+            // Если нужный формат не найден, используем первый доступный
+            if (!formatFound && !formats.isEmpty()) {
+                selectedFormat = formats.first();
+                qWarning() << "Desired format 1280x720 not found, using"
+                           << selectedFormat.resolution() << "instead";
+            }
+
+            // Устанавливаем формат для камеры
+            if (!selectedFormat.isNull()) {
+                m_camera->setCameraFormat(selectedFormat);
+            }
+
             m_captureSession.setCamera(m_camera);
             m_captureSession.setVideoSink(m_videoSink);
             connect(m_videoSink, &QVideoSink::videoFrameChanged,
