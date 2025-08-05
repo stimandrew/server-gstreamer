@@ -11,7 +11,6 @@ GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 GstStreamer::~GstStreamer()
 {
     stopAllStreams();
-    delete m_camera;
 }
 
 bool GstStreamer::yoloEnabled() const { return m_yoloEnabled; }

@@ -129,7 +129,7 @@ Window {
 
                         Switch {
                             id: yoloEnabledSwitch
-                            enabled: streamer.yoloModelPath !== ""
+                            enabled: streamer.yoloModelPath !== "" && streamer.isCameraActive(index)
                             onCheckedChanged: {
                                 if (yoloEnabledSwitch.enabled) {
                                     streamer.setYoloEnabled(checked)

@@ -13,11 +13,38 @@ CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int por
 
 CameraWorker::~CameraWorker()
 {
-    stopStreaming();
-    m_thread->quit();
-    m_thread->wait();
-    m_yoloThread->quit();
-    m_yoloThread->wait();
+    // 1. Остановить операции асинхронно, если мы не в рабочем потоке
+    if (QThread::currentThread() != m_thread) {
+        QMetaObject::invokeMethod(this, "stopStreaming", Qt::BlockingQueuedConnection);
+    } else {
+        stopStreaming();
+    }
+
+    // 2. Освободить ресурсы YOLO
+    if (m_yoloInitialized) {
+        release_yolo11_model(&m_rknnAppCtx);
+    }
+
+    // 3. Остановить и удалить таймер YOLO
+    if (m_yoloTimer) {
+        m_yoloTimer->stop();
+        m_yoloTimer->deleteLater();
+    }
+
+    // 4. Остановить YOLO поток (если он не текущий)
+    if (m_yoloThread && QThread::currentThread() != m_yoloThread) {
+        m_yoloThread->quit();
+        m_yoloThread->wait();
+        delete m_yoloThread;
+    }
+
+    // 5. Остановить основной поток (если он не текущий)
+    if (m_thread && QThread::currentThread() != m_thread) {
+        m_thread->quit();
+        m_thread->wait();
+        delete m_thread;
+    }
+
 }
 
 void CameraWorker::init()
@@ -30,12 +57,13 @@ void CameraWorker::init()
             this, &CameraWorker::handleFrame, Qt::DirectConnection);
 
     m_yoloThread = new QThread();
+    QObject::connect(m_yoloThread, &QThread::finished, m_yoloThread, &QObject::deleteLater);
     m_yoloThread->start();
 
     m_yoloTimer = new QTimer();
     m_yoloTimer->setInterval(1000); // 1 секунда
     m_yoloTimer->moveToThread(m_yoloThread);
-    connect(m_yoloTimer, &QTimer::timeout, this, &CameraWorker::processNextFrame);
+    QObject::connect(m_yoloTimer, &QTimer::timeout, this, &CameraWorker::processNextFrame);
 }
 
 void CameraWorker::startStreaming()
@@ -71,19 +99,15 @@ void CameraWorker::stopStreaming()
 
     m_isStreaming = false;
 
+
+    QMutexLocker queueLocker(&queueMutex);
+    frameQueue.clear();
+
     // Отключаем обработчик кадров и удаляем QVideoSink
     if (m_videoSink) {
         disconnect(m_videoSink, &QVideoSink::videoFrameChanged, this, &CameraWorker::handleFrame);
         delete m_videoSink;
         m_videoSink = nullptr;
-    }
-
-    // Остальная логика остановки...
-    if (m_camera && m_camera->isActive()) {
-        m_camera->stop();
-        QEventLoop loop;
-        QTimer::singleShot(50, &loop, &QEventLoop::quit);
-        loop.exec();
     }
 
     if (m_pipeline) {
@@ -93,10 +117,6 @@ void CameraWorker::stopStreaming()
 
     cleanupPipeline();
     cleanupCamera();
-
-    queueMutex.lock();
-    frameQueue.clear();
-    queueMutex.unlock();
 
     emit streamingStateChanged(false);
 }
@@ -212,6 +232,7 @@ bool CameraWorker::setupPipeline()
 
 void CameraWorker::cleanupPipeline()
 {
+    ensureInWorkerThread();
     if (m_appsrc) {
         g_signal_handlers_disconnect_by_data(m_appsrc, this);
         gst_object_unref(m_appsrc);
@@ -227,6 +248,7 @@ void CameraWorker::cleanupPipeline()
 
 void CameraWorker::cleanupCamera()
 {
+    ensureInWorkerThread();
     if (m_camera) {
         m_camera->stop();
         delete m_camera;
@@ -236,6 +258,7 @@ void CameraWorker::cleanupCamera()
 
 void CameraWorker::handleFrame(const QVideoFrame& frame)
 {
+    ensureInWorkerThread();
     QMutexLocker locker(&m_mutex);
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
