@@ -56,6 +56,7 @@ private:
     guint64 m_frameCount = 0;
     std::chrono::steady_clock::time_point m_lastFrameTime;
     QThread* m_thread = nullptr;
+    QTimer* m_frameTimer;
     QThread* m_yoloThread = nullptr;
     QTimer* m_yoloTimer;
     mutable QMutex m_cameraMutex;
@@ -72,6 +73,7 @@ private:
     bool setupCamera();
     QImage processFrame(const QVideoFrame& frame);
     void processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId);
+    void requestFrame();
 
     struct FrameData {
         QImage frame;

@@ -53,8 +53,12 @@ void CameraWorker::init()
 
     // Инициализация объектов в правильном потоке
     m_videoSink = new QVideoSink(this);
-    connect(m_videoSink, &QVideoSink::videoFrameChanged,
-            this, &CameraWorker::handleFrame, Qt::DirectConnection);
+
+    m_frameTimer = new QTimer(this);
+    m_frameTimer->setInterval(33); // ~30 FPS
+    m_frameTimer->moveToThread(m_thread);
+    connect(m_frameTimer, &QTimer::timeout, this, &CameraWorker::requestFrame);
+    m_frameTimer->start();
 
     m_yoloThread = new QThread();
     QObject::connect(m_yoloThread, &QThread::finished, m_yoloThread, &QObject::deleteLater);
@@ -104,7 +108,7 @@ void CameraWorker::stopStreaming()
 
     // Отключаем обработчик кадров и удаляем QVideoSink
     if (m_videoSink) {
-        disconnect(m_videoSink, &QVideoSink::videoFrameChanged, this, &CameraWorker::handleFrame);
+        disconnect(m_frameTimer, &QTimer::timeout, this, &CameraWorker::requestFrame);
         delete m_videoSink;
         m_videoSink = nullptr;
     }
@@ -157,8 +161,6 @@ bool CameraWorker::setupCamera()
 
             m_captureSession.setCamera(m_camera);
             m_captureSession.setVideoSink(m_videoSink);
-            connect(m_videoSink, &QVideoSink::videoFrameChanged,
-                    this, &CameraWorker::handleFrame, Qt::DirectConnection);
             return true;
         }
     }
@@ -167,44 +169,14 @@ bool CameraWorker::setupCamera()
     return false;
 }
 
-QImage CameraWorker::processFrame(const QVideoFrame &frame)
-{
-    // Ограничение частоты кадров до 30 FPS для этого потока
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastFrameTime).count();
-
-    // Конвертируем кадр в QImage
-    QImage image = frame.toImage();
-    if (image.isNull()) return QImage();
-
-    // Масштабируем изображение до 1280x720 с сохранением пропорций и обрезкой
-    QImage scaledImage;
-    if (image.width() != 1280 || image.height() != 720) {
-        // Сохраняем пропорции и обрезаем до нужного размера
-        scaledImage = image.scaled(1280, 720, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-
-        // Если изображение больше целевого размера, обрезаем центральную часть
-        if (scaledImage.width() > 1280 || scaledImage.height() > 720) {
-            int x = (scaledImage.width() - 1280) / 2;
-            int y = (scaledImage.height() - 720) / 2;
-            scaledImage = scaledImage.copy(x, y, 1280, 720);
+void CameraWorker::requestFrame() {
+    qDebug() << "void CameraWorker::requestFrame()" << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
+    if (m_videoSink) {
+        QVideoFrame frame = m_videoSink->videoFrame();
+        if (frame.isValid()) {
+            handleFrame(frame);
         }
-
-        if (elapsed < 15) {
-            return QImage();
-        }
-        m_lastFrameTime = now;
-    } else {
-        scaledImage = image;
-
-        if (elapsed < 20) {
-            return QImage();
-        }
-        m_lastFrameTime = now;
     }
-    m_lastFrameTime = now;
-
-    return scaledImage;
 }
 
 bool CameraWorker::setupPipeline()
@@ -286,14 +258,12 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
     QMutexLocker locker(&m_mutex);
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
-    QImage scaledImage = processFrame(frame);
-    if (scaledImage.isNull()) return;
 
     // Конвертируем в RGBA8888
-    QImage rgbaImage = scaledImage.convertToFormat(QImage::Format_RGBA8888);
+    QImage rgbaImage = frame.toImage().convertToFormat(QImage::Format_RGBA8888);
     if (rgbaImage.isNull()) return;
 
-    QImage rgbImage = scaledImage.convertToFormat(QImage::Format_RGB888);
+    QImage rgbImage = frame.toImage().convertToFormat(QImage::Format_RGB888);
     if (m_yoloEnabled && m_yoloInitialized && !rgbImage.isNull() && !rgbImage.size().isEmpty()) {
         if (frameQueue.size() < 3) {
             FrameData data;
