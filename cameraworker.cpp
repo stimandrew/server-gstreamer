@@ -25,26 +25,18 @@ CameraWorker::~CameraWorker()
         release_yolo11_model(&m_rknnAppCtx);
     }
 
-    // 3. Остановить и удалить таймер YOLO
-    if (m_yoloTimer) {
-        m_yoloTimer->stop();
-        m_yoloTimer->deleteLater();
+    // 3. Остановить и удалить таймер
+    if (m_frameTimer) {
+        m_frameTimer->stop();
+        m_frameTimer->deleteLater();
     }
 
-    // 4. Остановить YOLO поток (если он не текущий)
-    if (m_yoloThread && QThread::currentThread() != m_yoloThread) {
-        m_yoloThread->quit();
-        m_yoloThread->wait();
-        delete m_yoloThread;
-    }
-
-    // 5. Остановить основной поток (если он не текущий)
+    // 4. Остановить основной поток (если он не текущий)
     if (m_thread && QThread::currentThread() != m_thread) {
         m_thread->quit();
         m_thread->wait();
         delete m_thread;
     }
-
 }
 
 void CameraWorker::init()
@@ -56,18 +48,8 @@ void CameraWorker::init()
 
     m_frameTimer = new QTimer(this);
     m_frameTimer->setInterval(33); // ~30 FPS
-    m_frameTimer->moveToThread(m_thread);
     connect(m_frameTimer, &QTimer::timeout, this, &CameraWorker::requestFrame);
     m_frameTimer->start();
-
-    m_yoloThread = new QThread();
-    QObject::connect(m_yoloThread, &QThread::finished, m_yoloThread, &QObject::deleteLater);
-    m_yoloThread->start();
-
-    m_yoloTimer = new QTimer();
-    m_yoloTimer->setInterval(1000); // 1 секунда
-    m_yoloTimer->moveToThread(m_yoloThread);
-    QObject::connect(m_yoloTimer, &QTimer::timeout, this, &CameraWorker::processNextFrame);
 }
 
 void CameraWorker::startStreaming()
@@ -101,7 +83,6 @@ void CameraWorker::stopStreaming()
     if (!m_isStreaming) return;
 
     m_isStreaming = false;
-
 
     QMutexLocker queueLocker(&queueMutex);
     frameQueue.clear();
@@ -170,7 +151,6 @@ bool CameraWorker::setupCamera()
 }
 
 void CameraWorker::requestFrame() {
-    qDebug() << "void CameraWorker::requestFrame()" << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
     if (m_videoSink) {
         QVideoFrame frame = m_videoSink->videoFrame();
         if (frame.isValid()) {
@@ -258,39 +238,26 @@ void CameraWorker::handleFrame(const QVideoFrame& frame)
     QMutexLocker locker(&m_mutex);
     if (!m_isStreaming || !m_appsrc || !frame.isValid()) return;
 
-
-    // Конвертируем в RGBA8888
+    // Конвертируем в RGBA8888 для pipeline и RGB888 для YOLO
     QImage rgbaImage = frame.toImage().convertToFormat(QImage::Format_RGBA8888);
     if (rgbaImage.isNull()) return;
 
-    QImage rgbImage = frame.toImage().convertToFormat(QImage::Format_RGB888);
-    if (m_yoloEnabled && m_yoloInitialized && !rgbImage.isNull() && !rgbImage.size().isEmpty()) {
-        if (frameQueue.size() < 3) {
-            FrameData data;
-            data.frame = rgbImage;
-            data.deviceId = m_deviceId; // Сохраняем идентификатор камеры
-            frameQueue.enqueue(data);
-        }
-    }
-
-    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, rgbaImage.sizeInBytes(), nullptr);
-    GstMapInfo map;
-
-    if (gst_buffer_map(buffer, &map, GST_MAP_WRITE)) {
-        memcpy(map.data, rgbaImage.constBits(), rgbaImage.sizeInBytes());
-        gst_buffer_unmap(buffer, &map);
-
-        GST_BUFFER_PTS(buffer) = gst_util_uint64_scale(m_frameCount, GST_SECOND, 30);
-        GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale(1, GST_SECOND, 30);
-        m_frameCount++;
-
-        GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buffer);
-        if (ret != GST_FLOW_OK) {
-            gst_buffer_unref(buffer);
-            qWarning() << "Failed to push buffer to appsrc:" << ret;
+    // Если YOLO включен, обрабатываем кадр
+    if (m_yoloEnabled && m_yoloInitialized) {
+        QImage rgbImage = frame.toImage().convertToFormat(QImage::Format_RGB888);
+        if (!rgbImage.isNull() && !rgbImage.size().isEmpty()) {
+            if (frameQueue.size() < 3) {
+                FrameData data;
+                data.frame = rgbaImage; // Сохраняем RGBA для последующей отрисовки
+                data.deviceId = m_deviceId;
+                frameQueue.enqueue(data);
+                // Немедленно обрабатываем кадр вместо ожидания таймера
+                QMetaObject::invokeMethod(this, "processNextFrame", Qt::QueuedConnection);
+            }
         }
     } else {
-        gst_buffer_unref(buffer);
+        // Если YOLO выключен, просто передаем кадр в pipeline
+        pushFrameToPipeline(rgbaImage);
     }
 }
 
@@ -328,17 +295,12 @@ void CameraWorker::captureFrame(const QString& savePath) {
 void CameraWorker::setYoloEnabled(bool enabled)
 {
     QMutexLocker locker(&m_cameraMutex);
-
     m_yoloEnabled = enabled && m_yoloInitialized;
-    if (m_yoloEnabled) {
-        QMetaObject::invokeMethod(m_yoloTimer, "start");
-    } else {
-        QMetaObject::invokeMethod(m_yoloTimer, "stop");
+    if (!m_yoloEnabled) {
         queueMutex.lock();
         frameQueue.clear();
         queueMutex.unlock();
     }
-
 }
 
 void CameraWorker::setYoloModelPath(const QString &path)
@@ -355,7 +317,6 @@ void CameraWorker::setYoloModelPath(const QString &path)
             m_yoloInitialized = true;
         }
     }
-
 }
 
 void CameraWorker::ensureInWorkerThread() {
@@ -461,12 +422,21 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
         QString label = QString("%1 %2% (Camera: %3)")
                             .arg(QString::fromUtf8(cls_name))
                             .arg(QString::number(det_result->prop * 100, 'f', 0))
-                            .arg(sourceDeviceId); // Добавляем идентификатор камеры в метку
+                            .arg(sourceDeviceId);
 
         objects.append(qMakePair(rect, label));
-        qDebug() << "Detected:" << label << "at:" << rect << "Time:"
-                 << QDateTime::currentDateTime().toString("hh:mm:ss.zzz");
     }
+
+    // Рисуем результаты детекции на кадре
+    QImage frameWithDetection = drawDetectionResults(frame, objects);
+
+    // Отправляем кадр с детекцией в pipeline
+    QMetaObject::invokeMethod(this, [this, frameWithDetection]() {
+        QMutexLocker locker(&m_mutex);
+        if (m_isStreaming && m_appsrc) {
+            pushFrameToPipeline(frameWithDetection);
+        }
+    }, Qt::QueuedConnection);
 
     emit newObjects(objects);
     free(src_image.virt_addr);
@@ -474,4 +444,60 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     locker.relock();
     m_yoloProcessing = false;
     m_yoloProcessingCondition.wakeAll();
+}
+
+QImage CameraWorker::drawDetectionResults(const QImage& frame, const QList<QPair<QRect, QString>>& objects) {
+    QImage imageWithDetection = frame.copy();
+    QPainter painter(&imageWithDetection);
+
+    QFont font = painter.font();
+    font.setPointSize(20);
+    painter.setFont(font);
+
+    QPen pen(Qt::green, 3);
+    painter.setPen(pen);
+
+    for (const auto& obj : objects) {
+        const QRect& rect = obj.first;
+        const QString& label = obj.second;
+
+        // Рисуем прямоугольник
+        painter.drawRect(rect);
+
+        // Рисуем текст с фоном
+        painter.save();
+        QRect textRect = QRect(rect.x(), rect.y() - 30, rect.width(), 30);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 150));
+        painter.drawRect(textRect);
+
+        painter.setPen(Qt::white);
+        painter.drawText(textRect, Qt::AlignCenter, label);
+        painter.restore();
+    }
+
+    return imageWithDetection;
+}
+
+void CameraWorker::pushFrameToPipeline(const QImage& frame)
+{
+    GstBuffer* buffer = gst_buffer_new_allocate(nullptr, frame.sizeInBytes(), nullptr);
+    GstMapInfo map;
+
+    if (gst_buffer_map(buffer, &map, GST_MAP_WRITE)) {
+        memcpy(map.data, frame.constBits(), frame.sizeInBytes());
+        gst_buffer_unmap(buffer, &map);
+
+        GST_BUFFER_PTS(buffer) = gst_util_uint64_scale(m_frameCount, GST_SECOND, 30);
+        GST_BUFFER_DURATION(buffer) = gst_util_uint64_scale(1, GST_SECOND, 30);
+        m_frameCount++;
+
+        GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buffer);
+        if (ret != GST_FLOW_OK) {
+            gst_buffer_unref(buffer);
+            qWarning() << "Failed to push buffer to appsrc:" << ret;
+        }
+    } else {
+        gst_buffer_unref(buffer);
+    }
 }

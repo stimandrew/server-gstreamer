@@ -16,6 +16,7 @@
 #include <QTimer>
 #include <QQueue>
 #include <QWaitCondition>
+#include <QPainter>
 #include "yolo11.h"
 
 class CameraWorker : public QObject {
@@ -57,8 +58,6 @@ private:
     std::chrono::steady_clock::time_point m_lastFrameTime;
     QThread* m_thread = nullptr;
     QTimer* m_frameTimer;
-    QThread* m_yoloThread = nullptr;
-    QTimer* m_yoloTimer;
     mutable QMutex m_cameraMutex;
     bool m_yoloEnabled = false;
     bool m_yoloInitialized = false;
@@ -88,4 +87,7 @@ private:
     static void onBusMessage(GstBus* bus, GstMessage* msg, gpointer data);
     static void onNeedData(GstElement* appsrc, guint size, gpointer data);
     static void onEnoughData(GstElement* appsrc, gpointer data);
+
+    QImage drawDetectionResults(const QImage& frame, const QList<QPair<QRect, QString>>& objects);
+    void pushFrameToPipeline(const QImage& frame);
 };
