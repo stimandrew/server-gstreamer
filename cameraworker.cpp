@@ -374,6 +374,7 @@ void CameraWorker::processNextFrame() {
 }
 
 void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId) {
+    qDebug() << "void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId)";
     QMutexLocker locker(&m_yoloProcessingMutex);
     while (m_yoloProcessing) {
         m_yoloProcessingCondition.wait(&m_yoloProcessingMutex);
@@ -395,7 +396,11 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     src_image.height = converted.height();
     src_image.format = IMAGE_FORMAT_RGB888;
     src_image.size = converted.width() * converted.height() * 3;
-    src_image.virt_addr = (unsigned char*)malloc(src_image.size);
+
+    auto buffer = std::make_unique<unsigned char[]>(src_image.size);
+    memcpy(buffer.get(), converted.bits(), src_image.size);
+
+    src_image.virt_addr = buffer.get();
     memcpy(src_image.virt_addr, converted.bits(), src_image.size);
 
     object_detect_result_list od_results;
@@ -404,7 +409,6 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     int ret = inference_yolo11_model(&m_rknnAppCtx, &src_image, &od_results);
     if (ret != 0) {
         qWarning() << "YOLO inference failed";
-        free(src_image.virt_addr);
         return;
     }
 
@@ -419,10 +423,13 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
             );
 
         const char* cls_name = coco_cls_to_name(det_result->cls_id);
-        QString label = QString("%1 %2% (Camera: %3)")
+        // QString label = QString("%1 %2% (Camera: %3)")
+        //                     .arg(QString::fromUtf8(cls_name))
+        //                     .arg(QString::number(det_result->prop * 100, 'f', 0))
+        //                     .arg(sourceDeviceId);
+        QString label = QString("%1 %2%")
                             .arg(QString::fromUtf8(cls_name))
-                            .arg(QString::number(det_result->prop * 100, 'f', 0))
-                            .arg(sourceDeviceId);
+                            .arg(QString::number(det_result->prop * 100, 'f', 0));
 
         objects.append(qMakePair(rect, label));
     }
@@ -439,7 +446,13 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     }, Qt::QueuedConnection);
 
     emit newObjects(objects);
-    free(src_image.virt_addr);
+    if(src_image.virt_addr){
+        ensureInWorkerThread();
+        qDebug() << "src_image.virt_addr = " << src_image.virt_addr;
+    } else {
+        ensureInWorkerThread();
+        qDebug() << "!src_image.virt_addr = " << src_image.virt_addr;
+    }
 
     locker.relock();
     m_yoloProcessing = false;
@@ -481,6 +494,8 @@ QImage CameraWorker::drawDetectionResults(const QImage& frame, const QList<QPair
 
 void CameraWorker::pushFrameToPipeline(const QImage& frame)
 {
+
+    qDebug() << "void CameraWorker::pushFrameToPipeline(const QImage& frame)";
     GstBuffer* buffer = gst_buffer_new_allocate(nullptr, frame.sizeInBytes(), nullptr);
     GstMapInfo map;
 
