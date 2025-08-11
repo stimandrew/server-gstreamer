@@ -110,10 +110,10 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
     }
 
     app_ctx->io_num = io_num;
-    app_ctx->input_attrs = (rknn_tensor_attr *)malloc(io_num.n_input * sizeof(rknn_tensor_attr));
-    memcpy(app_ctx->input_attrs, input_attrs, io_num.n_input * sizeof(rknn_tensor_attr));
-    app_ctx->output_attrs = (rknn_tensor_attr *)malloc(io_num.n_output * sizeof(rknn_tensor_attr));
-    memcpy(app_ctx->output_attrs, output_attrs, io_num.n_output * sizeof(rknn_tensor_attr));
+    app_ctx->input_attrs = std::make_unique<rknn_tensor_attr[]>(io_num.n_input);
+    std::copy(input_attrs, input_attrs + io_num.n_input, app_ctx->input_attrs.get());
+    app_ctx->output_attrs = std::make_unique<rknn_tensor_attr[]>(io_num.n_output);
+    std::copy(output_attrs, output_attrs + io_num.n_output, app_ctx->output_attrs.get());
 
     if (input_attrs[0].fmt == RKNN_TENSOR_NCHW)
     {
@@ -137,16 +137,6 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
 
 int release_yolo11_model(rknn_app_context_t *app_ctx)
 {
-    if (app_ctx->input_attrs != NULL)
-    {
-        free(app_ctx->input_attrs);
-        app_ctx->input_attrs = NULL;
-    }
-    if (app_ctx->output_attrs != NULL)
-    {
-        free(app_ctx->output_attrs);
-        app_ctx->output_attrs = NULL;
-    }
     if (app_ctx->rknn_ctx != 0)
     {
         rknn_destroy(app_ctx->rknn_ctx);
@@ -182,7 +172,8 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     dst_img.height = app_ctx->model_height;
     dst_img.format = IMAGE_FORMAT_RGB888;
     dst_img.size = get_image_size(&dst_img);
-    dst_img.virt_addr = (unsigned char *)malloc(dst_img.size);
+    auto buffer = std::make_unique<unsigned char[]>(dst_img.size);
+    dst_img.virt_addr = buffer.get();
     if (dst_img.virt_addr == NULL)
     {
         printf("malloc buffer size:%d fail!\n", dst_img.size);
@@ -241,10 +232,5 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs);
 
 out:
-    if (dst_img.virt_addr != NULL)
-    {
-        free(dst_img.virt_addr);
-    }
-
     return ret;
 }

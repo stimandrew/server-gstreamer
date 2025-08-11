@@ -24,7 +24,7 @@
 #include <set>
 #include <vector>
 
-static char *labels[OBJ_CLASS_NUM];
+static std::vector<std::string> labels(OBJ_CLASS_NUM);
 
 inline static int clamp(float val, int min, int max) { return val > min ? (val < max ? val : max) : min; }
 
@@ -88,11 +88,27 @@ static int readLines(const char *fileName, char *lines[], int max_line)
     return i;
 }
 
-static int loadLabelName(const char *locationFilename, char *label[])
+static int loadLabelName(const char *locationFilename, std::vector<std::string>& label)
 {
-    printf("load lable %s\n", locationFilename);
-    readLines(locationFilename, label, OBJ_CLASS_NUM);
-    return 0;
+    printf("load label %s\n", locationFilename);
+    FILE* file = fopen(locationFilename, "r");
+    if (!file)
+    {
+        printf("Open %s fail!\n", locationFilename);
+        return -1;
+    }
+
+    char* line = nullptr;
+    int len = 0;
+    int i = 0;
+    while ((line = readLine(file, line, &len)) != nullptr && i < OBJ_CLASS_NUM)
+    {
+        label[i++] = line;
+        free(line); // Освобождаем здесь, так как строка скопирована в std::string
+        line = nullptr;
+    }
+    fclose(file);
+    return i;
 }
 
 static float CalculateOverlap(float xmin0, float ymin0, float xmax0, float ymax0, float xmin1, float ymin1, float xmax1,
@@ -665,7 +681,8 @@ int init_post_process()
     }
 
     for (int i = 0; i < 10; i++) {
-        qDebug("Label %d: %s\n", i, labels[i] ? labels[i] : "NULL");
+        const char* label = labels[i].empty() ? "NULL" : labels[i].c_str();
+        qDebug("Label %d: %s\n", i, label);
     }
 
     return 0;
@@ -673,15 +690,14 @@ int init_post_process()
 
 char *coco_cls_to_name(int cls_id)
 {
-
-    if (cls_id >= OBJ_CLASS_NUM)
+    if (cls_id >= OBJ_CLASS_NUM || cls_id < 0)
     {
         return "null";
     }
 
-    if (labels[cls_id])
+    if (!labels[cls_id].empty())
     {
-        return labels[cls_id];
+        return const_cast<char*>(labels[cls_id].c_str());
     }
 
     return "null";
@@ -689,12 +705,5 @@ char *coco_cls_to_name(int cls_id)
 
 void deinit_post_process()
 {
-    for (int i = 0; i < OBJ_CLASS_NUM; i++)
-    {
-        if (labels[i] != nullptr)
-        {
-            free(labels[i]);
-            labels[i] = nullptr;
-        }
-    }
+     // Больше не нужно, так как std::string сам управляет памятью
 }

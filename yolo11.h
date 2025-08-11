@@ -18,6 +18,7 @@
 
 #include "include/rknn_api.h"
 #include "utils/common.h"
+#include <memory>
 
 #if defined(RV1106_1103) 
     typedef struct {
@@ -27,27 +28,27 @@
     }rknn_dma_buf;
 #endif
 
-typedef struct {
-    rknn_context rknn_ctx;
-    rknn_input_output_num io_num;
-    rknn_tensor_attr* input_attrs;
-    rknn_tensor_attr* output_attrs;
-#if defined(RV1106_1103) 
-    rknn_tensor_mem* input_mems[1];
-    rknn_tensor_mem* output_mems[9];
-    rknn_dma_buf img_dma_buf;
+    typedef struct {
+        rknn_context rknn_ctx;
+        rknn_input_output_num io_num;
+        std::unique_ptr<rknn_tensor_attr[]> input_attrs;
+        std::unique_ptr<rknn_tensor_attr[]> output_attrs;
+#if defined(RV1106_1103)
+        std::unique_ptr<rknn_tensor_mem> input_mems[1];
+        std::unique_ptr<rknn_tensor_mem> output_mems[9];
+        rknn_dma_buf img_dma_buf;
 #endif
-#if defined(ZERO_COPY)  
-    rknn_tensor_mem* input_mems[1];
-    rknn_tensor_mem* output_mems[9];
-    rknn_tensor_attr* input_native_attrs;
-    rknn_tensor_attr* output_native_attrs;
+#if defined(ZERO_COPY)
+        std::unique_ptr<rknn_tensor_mem> input_mems[1];
+        std::unique_ptr<rknn_tensor_mem> output_mems[9];
+        std::unique_ptr<rknn_tensor_attr[]> input_native_attrs;
+        std::unique_ptr<rknn_tensor_attr[]> output_native_attrs;
 #endif
-    int model_channel;
-    int model_width;
-    int model_height;
-    bool is_quant;
-} rknn_app_context_t;
+        int model_channel;
+        int model_width;
+        int model_height;
+        bool is_quant;
+    } rknn_app_context_t;
 
 #include "postprocess.h"
 
