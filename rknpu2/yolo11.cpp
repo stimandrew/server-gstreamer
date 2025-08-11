@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <vector>
+#include <memory>
 
 #include "../yolo11.h"
 #include "common.h"
@@ -35,19 +37,17 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
 {
     int ret;
     int model_len = 0;
-    char *model;
-    rknn_context ctx = 0;
+    std::vector<char> model_data;
 
     // Load RKNN Model
-    model_len = read_data_from_file(model_path, &model);
-    if (model == NULL)
+    model_len = read_data_from_file(model_path, model_data);
+    if (model_data.empty())
     {
         printf("load_model fail!\n");
         return -1;
     }
 
-    ret = rknn_init(&ctx, model, model_len, 0, NULL);
-    free(model);
+    ret = rknn_init(&app_ctx->rknn_ctx, model_data.data(), model_len, 0, NULL);
     if (ret < 0)
     {
         printf("rknn_init fail! ret=%d\n", ret);
@@ -55,23 +55,21 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
     }
 
     // Get Model Input Output Number
-    rknn_input_output_num io_num;
-    ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_IN_OUT_NUM, &app_ctx->io_num, sizeof(app_ctx->io_num));
     if (ret != RKNN_SUCC)
     {
         printf("rknn_query fail! ret=%d\n", ret);
         return -1;
     }
-    printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+    printf("model input num: %d, output num: %d\n", app_ctx->io_num.n_input, app_ctx->io_num.n_output);
 
     // Get Model Input Info
     printf("input tensors:\n");
-    rknn_tensor_attr input_attrs[io_num.n_input];
-    memset(input_attrs, 0, sizeof(input_attrs));
-    for (int i = 0; i < io_num.n_input; i++)
+    std::vector<rknn_tensor_attr> input_attrs(app_ctx->io_num.n_input);
+    for (int i = 0; i < app_ctx->io_num.n_input; i++)
     {
         input_attrs[i].index = i;
-        ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
+        ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret != RKNN_SUCC)
         {
             printf("rknn_query fail! ret=%d\n", ret);
@@ -82,12 +80,11 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
 
     // Get Model Output Info
     printf("output tensors:\n");
-    rknn_tensor_attr output_attrs[io_num.n_output];
-    memset(output_attrs, 0, sizeof(output_attrs));
-    for (int i = 0; i < io_num.n_output; i++)
+    std::vector<rknn_tensor_attr> output_attrs(app_ctx->io_num.n_output);
+    for (int i = 0; i < app_ctx->io_num.n_output; i++)
     {
         output_attrs[i].index = i;
-        ret = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+        ret = rknn_query(app_ctx->rknn_ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret != RKNN_SUCC)
         {
             printf("rknn_query fail! ret=%d\n", ret);
@@ -97,9 +94,11 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
     }
 
     // Set to context
-    app_ctx->rknn_ctx = ctx;
+    app_ctx->input_attrs = std::make_unique<rknn_tensor_attr[]>(app_ctx->io_num.n_input);
+    std::copy(input_attrs.begin(), input_attrs.end(), app_ctx->input_attrs.get());
+    app_ctx->output_attrs = std::make_unique<rknn_tensor_attr[]>(app_ctx->io_num.n_output);
+    std::copy(output_attrs.begin(), output_attrs.end(), app_ctx->output_attrs.get());
 
-    // TODO
     if (output_attrs[0].qnt_type == RKNN_TENSOR_QNT_AFFINE_ASYMMETRIC && output_attrs[0].type == RKNN_TENSOR_INT8)
     {
         app_ctx->is_quant = true;
@@ -108,12 +107,6 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
     {
         app_ctx->is_quant = false;
     }
-
-    app_ctx->io_num = io_num;
-    app_ctx->input_attrs = std::make_unique<rknn_tensor_attr[]>(io_num.n_input);
-    std::copy(input_attrs, input_attrs + io_num.n_input, app_ctx->input_attrs.get());
-    app_ctx->output_attrs = std::make_unique<rknn_tensor_attr[]>(io_num.n_output);
-    std::copy(output_attrs, output_attrs + io_num.n_output, app_ctx->output_attrs.get());
 
     if (input_attrs[0].fmt == RKNN_TENSOR_NCHW)
     {
@@ -150,8 +143,8 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     int ret;
     image_buffer_t dst_img;
     letterbox_t letter_box;
-    rknn_input inputs[app_ctx->io_num.n_input];
-    rknn_output outputs[app_ctx->io_num.n_output];
+    std::vector<rknn_input> inputs(app_ctx->io_num.n_input);
+    std::vector<rknn_output> outputs(app_ctx->io_num.n_output);
     const float nms_threshold = NMS_THRESH;      // 默认的NMS阈值
     const float box_conf_threshold = BOX_THRESH; // 默认的置信度阈值
     int bg_color = 114;
@@ -164,8 +157,6 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     memset(od_results, 0x00, sizeof(*od_results));
     memset(&letter_box, 0, sizeof(letterbox_t));
     memset(&dst_img, 0, sizeof(image_buffer_t));
-    memset(inputs, 0, sizeof(inputs));
-    memset(outputs, 0, sizeof(outputs));
 
     // Pre Process
     dst_img.width = app_ctx->model_width;
@@ -195,7 +186,7 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     inputs[0].size = app_ctx->model_width * app_ctx->model_height * app_ctx->model_channel;
     inputs[0].buf = dst_img.virt_addr;
 
-    ret = rknn_inputs_set(app_ctx->rknn_ctx, app_ctx->io_num.n_input, inputs);
+    ret = rknn_inputs_set(app_ctx->rknn_ctx, app_ctx->io_num.n_input, inputs.data());
     if (ret < 0)
     {
         printf("rknn_input_set fail! ret=%d\n", ret);
@@ -212,13 +203,12 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     }
 
     // Get Output
-    memset(outputs, 0, sizeof(outputs));
     for (int i = 0; i < app_ctx->io_num.n_output; i++)
     {
         outputs[i].index = i;
         outputs[i].want_float = (!app_ctx->is_quant);
     }
-    ret = rknn_outputs_get(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs, NULL);
+    ret = rknn_outputs_get(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data(), NULL);
     if (ret < 0)
     {
         printf("rknn_outputs_get fail! ret=%d\n", ret);
@@ -226,10 +216,10 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     }
 
     // Post Process
-    post_process(app_ctx, outputs, &letter_box, box_conf_threshold, nms_threshold, od_results);
+    post_process(app_ctx, outputs.data(), &letter_box, box_conf_threshold, nms_threshold, od_results);
 
     // Remeber to release rknn output
-    rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs);
+    rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data());
 
 out:
     return ret;

@@ -28,84 +28,43 @@ static std::vector<std::string> labels(OBJ_CLASS_NUM);
 
 inline static int clamp(float val, int min, int max) { return val > min ? (val < max ? val : max) : min; }
 
-static char *readLine(FILE *fp, char *buffer, int *len)
-{
+static std::string readLine(FILE *fp) {
+    std::string line;
     int ch;
-    int i = 0;
-    size_t buff_len = 0;
-
-    buffer = (char *)malloc(buff_len + 1);
-    if (!buffer)
-        return NULL; // Out of memory
-
-    while ((ch = fgetc(fp)) != '\n' && ch != EOF)
-    {
-        buff_len++;
-        void *tmp = realloc(buffer, buff_len + 1);
-        if (tmp == NULL)
-        {
-            free(buffer);
-            return NULL; // Out of memory
-        }
-        buffer = (char *)tmp;
-
-        buffer[i] = (char)ch;
-        i++;
+    while ((ch = fgetc(fp)) != '\n' && ch != EOF) {
+        line += static_cast<char>(ch);
     }
-    buffer[i] = '\0';
-
-    *len = buff_len;
-
-    // Detect end
-    if (ch == EOF && (i == 0 || ferror(fp)))
-    {
-        free(buffer);
-        return NULL;
-    }
-    return buffer;
+    return line;
 }
 
-static int readLines(const char *fileName, char *lines[], int max_line)
-{
+static std::vector<std::string> readLines(const char *fileName) {
+    std::vector<std::string> lines;
     FILE *file = fopen(fileName, "r");
-    char *s;
-    int i = 0;
-    int n = 0;
-
-    if (file == NULL)
-    {
+    if (file == nullptr) {
         printf("Open %s fail!\n", fileName);
-        return -1;
+        return lines;
     }
 
-    while ((s = readLine(file, s, &n)) != NULL)
-    {
-        lines[i++] = s;
-        if (i >= max_line)
-            break;
+    std::string line;
+    while (!(line = readLine(file)).empty()) {
+        lines.push_back(line);
     }
     fclose(file);
-    return i;
+    return lines;
 }
 
-static int loadLabelName(const char *locationFilename, std::vector<std::string>& label)
-{
+static int loadLabelName(const char *locationFilename, std::vector<std::string>& label) {
     printf("load label %s\n", locationFilename);
     FILE* file = fopen(locationFilename, "r");
-    if (!file)
-    {
+    if (!file) {
         printf("Open %s fail!\n", locationFilename);
         return -1;
     }
 
-    char* line = nullptr;
-    int len = 0;
+    std::string line;
     int i = 0;
-    while ((line = readLine(file, line, &len)) != nullptr && i < OBJ_CLASS_NUM)
-    {
+    while (i < OBJ_CLASS_NUM && !(line = readLine(file)).empty()) {
         label[i++] = line;
-        free(line); // Освобождаем здесь, так как строка скопирована в std::string
-        line = nullptr;
     }
     fclose(file);
     return i;
