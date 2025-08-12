@@ -141,12 +141,12 @@ int release_yolo11_model(rknn_app_context_t *app_ctx)
 int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, object_detect_result_list *od_results)
 {
     int ret;
-    image_buffer_t dst_img;
-    letterbox_t letter_box;
+    std::unique_ptr<image_buffer_t> dst_img = std::make_unique<image_buffer_t>();
+    std::unique_ptr<letterbox_t> letter_box = std::make_unique<letterbox_t>();
     std::vector<rknn_input> inputs(app_ctx->io_num.n_input);
     std::vector<rknn_output> outputs(app_ctx->io_num.n_output);
-    const float nms_threshold = NMS_THRESH;      // 默认的NMS阈值
-    const float box_conf_threshold = BOX_THRESH; // 默认的置信度阈值
+    const float nms_threshold = NMS_THRESH;
+    const float box_conf_threshold = BOX_THRESH;
     int bg_color = 114;
 
     if ((!app_ctx) || !(img) || (!od_results))
@@ -155,24 +155,25 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     }
 
     memset(od_results, 0x00, sizeof(*od_results));
-    memset(&letter_box, 0, sizeof(letterbox_t));
-    memset(&dst_img, 0, sizeof(image_buffer_t));
+    memset(letter_box.get(), 0, sizeof(letterbox_t));
+    memset(dst_img.get(), 0, sizeof(image_buffer_t));
 
     // Pre Process
-    dst_img.width = app_ctx->model_width;
-    dst_img.height = app_ctx->model_height;
-    dst_img.format = IMAGE_FORMAT_RGB888;
-    dst_img.size = get_image_size(&dst_img);
-    auto buffer = std::make_unique<unsigned char[]>(dst_img.size);
-    dst_img.virt_addr = buffer.get();
-    if (dst_img.virt_addr == NULL)
+    dst_img->width = app_ctx->model_width;
+    dst_img->height = app_ctx->model_height;
+    dst_img->format = IMAGE_FORMAT_RGB888;
+    dst_img->size = get_image_size(dst_img.get());
+    auto buffer = std::make_unique<unsigned char[]>(dst_img->size);
+    dst_img->virt_addr = buffer.get();
+
+    if (dst_img->virt_addr == nullptr)
     {
-        printf("malloc buffer size:%d fail!\n", dst_img.size);
+        printf("malloc buffer size:%d fail!\n", dst_img->size);
         return -1;
     }
 
     // letterbox
-    ret = convert_image_with_letterbox(img, &dst_img, &letter_box, bg_color);
+    ret = convert_image_with_letterbox(img, dst_img.get(), letter_box.get(), bg_color);
     if (ret < 0)
     {
         printf("convert_image_with_letterbox fail! ret=%d\n", ret);
@@ -184,7 +185,7 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     inputs[0].type = RKNN_TENSOR_UINT8;
     inputs[0].fmt = RKNN_TENSOR_NHWC;
     inputs[0].size = app_ctx->model_width * app_ctx->model_height * app_ctx->model_channel;
-    inputs[0].buf = dst_img.virt_addr;
+    inputs[0].buf = dst_img->virt_addr;
 
     ret = rknn_inputs_set(app_ctx->rknn_ctx, app_ctx->io_num.n_input, inputs.data());
     if (ret < 0)
@@ -208,19 +209,18 @@ int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
         outputs[i].index = i;
         outputs[i].want_float = (!app_ctx->is_quant);
     }
-    ret = rknn_outputs_get(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data(), NULL);
+    ret = rknn_outputs_get(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data(), nullptr);
     if (ret < 0)
     {
         printf("rknn_outputs_get fail! ret=%d\n", ret);
-        goto out;
+        return ret;
     }
 
     // Post Process
-    post_process(app_ctx, outputs.data(), &letter_box, box_conf_threshold, nms_threshold, od_results);
+    post_process(app_ctx, outputs.data(), letter_box.get(), box_conf_threshold, nms_threshold, od_results);
 
-    // Remeber to release rknn output
+    // Release rknn output
     rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data());
 
-out:
     return ret;
 }
