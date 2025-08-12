@@ -13,12 +13,7 @@ CameraWorker::CameraWorker(const QString& deviceId, const QString& host, int por
 
 CameraWorker::~CameraWorker()
 {
-    // 1. Остановить операции асинхронно, если мы не в рабочем потоке
-    if (QThread::currentThread() != m_thread) {
-        QMetaObject::invokeMethod(this, "stopStreaming", Qt::BlockingQueuedConnection);
-    } else {
-        stopStreaming();
-    }
+    stopStreaming();
 
     // 2. Освободить ресурсы YOLO
     if (m_yoloInitialized) {
@@ -29,13 +24,6 @@ CameraWorker::~CameraWorker()
     if (m_frameTimer) {
         m_frameTimer->stop();
         m_frameTimer->deleteLater();
-    }
-
-    // 4. Остановить основной поток (если он не текущий)
-    if (m_thread && QThread::currentThread() != m_thread) {
-        m_thread->quit();
-        m_thread->wait();
-        delete m_thread;
     }
 }
 
@@ -228,7 +216,7 @@ void CameraWorker::cleanupCamera()
 {
     if (m_camera) {
         m_camera->stop();
-        delete m_camera;
+        m_camera->deleteLater();
         m_camera = nullptr;
     }
 }

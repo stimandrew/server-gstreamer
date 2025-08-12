@@ -13,7 +13,7 @@ target_include_directories(fileutils PUBLIC
 )
 
 add_library(imagedrawing STATIC
-    image_drawing.c
+    image_drawing.cpp
 )
 target_include_directories(imagedrawing PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -54,7 +54,7 @@ else()
 endif()
 
 add_library(audioutils STATIC
-    audio_utils.c
+    audio_utils.cpp
 )
 
 target_link_libraries(audioutils

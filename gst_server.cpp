@@ -116,6 +116,7 @@ void GstStreamer::stopStreaming(int deviceIndex) {
             // Останавливаем worker (поток уничтожится в деструкторе worker)
             QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
             ct.worker->deleteLater();
+            ct.worker = nullptr;
 
             // Удаляем из контейнеров
             m_cameraThreads.remove(i);
@@ -157,6 +158,7 @@ void GstStreamer::stopAllStreams() {
         // Stop the worker - thread will be cleaned up in worker's destructor
         QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
         ct.worker->deleteLater();
+        ct.worker = nullptr;
     }
 
     m_cameraThreads.clear();
@@ -273,8 +275,10 @@ void GstStreamer::updateAvailableDevices() {
                 if (ct.worker->thread() && ct.worker->thread()->isRunning()) {
                     QMetaObject::invokeMethod(ct.worker, "stopStreaming", Qt::BlockingQueuedConnection);
                     ct.worker->deleteLater();
+                    ct.worker = nullptr;
                 } else {
                     ct.worker->deleteLater();
+                    ct.worker = nullptr;
                 }
             }
 
@@ -341,7 +345,7 @@ void GstStreamer::resetCamera()
     if (m_camera) {
         m_camera->stopStreaming();
         disconnect(m_camera, nullptr, this, nullptr);
-        delete m_camera;
+        m_camera->deleteLater();
         m_camera = nullptr;
         m_objects.clear();
         emit objectsChanged(objects());
