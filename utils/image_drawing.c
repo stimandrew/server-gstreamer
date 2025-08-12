@@ -3,7 +3,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
-#include <memory>
 
 #include "image_drawing.h"
 #include "font.h"
@@ -1183,7 +1182,7 @@ static void draw_text_c1(unsigned char* pixels, int w, int h, const char* text, 
     const unsigned char* pen_color = (const unsigned char*)&color;
     int stride = w;
 
-    auto resized_font_bitmap = std::make_unique<unsigned char[]>(fontpixelsize * fontpixelsize * 2);
+    unsigned char* resized_font_bitmap = (unsigned char*)malloc(fontpixelsize * fontpixelsize * 2);
 
     const int n = strlen(text);
 
@@ -1202,7 +1201,7 @@ static void draw_text_c1(unsigned char* pixels, int w, int h, const char* text, 
             const unsigned char* font_bitmap = mono_font_data[ch - ' '];
 
             // draw resized character
-            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap.get(), fontpixelsize, fontpixelsize * 2);
+            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap, fontpixelsize, fontpixelsize * 2);
 
             for (int j = cursor_y; j < cursor_y + fontpixelsize * 2; j++) {
                 if (j < 0)
@@ -1211,7 +1210,7 @@ static void draw_text_c1(unsigned char* pixels, int w, int h, const char* text, 
                 if (j >= h)
                     break;
 
-                const unsigned char* palpha = resized_font_bitmap.get() + (j - cursor_y) * fontpixelsize;
+                const unsigned char* palpha = resized_font_bitmap + (j - cursor_y) * fontpixelsize;
                 unsigned char* p = pixels + stride * j;
 
                 for (int k = cursor_x; k < cursor_x + fontpixelsize; k++) {
@@ -1230,6 +1229,8 @@ static void draw_text_c1(unsigned char* pixels, int w, int h, const char* text, 
             cursor_x += fontpixelsize;
         }
     }
+
+    free(resized_font_bitmap);
 }
 
 static void draw_text_c2(unsigned char* pixels, int w, int h, const char* text, int x, int y, int fontpixelsize,
@@ -1238,7 +1239,7 @@ static void draw_text_c2(unsigned char* pixels, int w, int h, const char* text, 
     const unsigned char* pen_color = (const unsigned char*)&color;
     int stride = w * 2;
 
-    auto resized_font_bitmap = std::make_unique<unsigned char[]>(fontpixelsize * fontpixelsize * 2);
+    unsigned char* resized_font_bitmap = (unsigned char*)malloc(fontpixelsize * fontpixelsize * 2);
 
     const int n = strlen(text);
 
@@ -1258,7 +1259,7 @@ static void draw_text_c2(unsigned char* pixels, int w, int h, const char* text, 
             const unsigned char* font_bitmap = mono_font_data[font_bitmap_index];
 
             // draw resized character
-            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap.get(), fontpixelsize, fontpixelsize * 2);
+            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap, fontpixelsize, fontpixelsize * 2);
 
             for (int j = cursor_y; j < cursor_y + fontpixelsize * 2; j++) {
                 if (j < 0)
@@ -1267,7 +1268,7 @@ static void draw_text_c2(unsigned char* pixels, int w, int h, const char* text, 
                 if (j >= h)
                     break;
 
-                const unsigned char* palpha = resized_font_bitmap.get() + (j - cursor_y) * fontpixelsize;
+                const unsigned char* palpha = resized_font_bitmap + (j - cursor_y) * fontpixelsize;
                 unsigned char* p = pixels + stride * j;
 
                 for (int k = cursor_x; k < cursor_x + fontpixelsize; k++) {
@@ -1287,6 +1288,8 @@ static void draw_text_c2(unsigned char* pixels, int w, int h, const char* text, 
             cursor_x += fontpixelsize;
         }
     }
+
+    free(resized_font_bitmap);
 }
 
 static void draw_text_c3(unsigned char* pixels, int w, int h, const char* text, int x, int y, int fontpixelsize,
@@ -1295,7 +1298,7 @@ static void draw_text_c3(unsigned char* pixels, int w, int h, const char* text, 
     const unsigned char* pen_color = (const unsigned char*)&color;
     int stride = w * 3;
 
-    auto resized_font_bitmap = std::make_unique<unsigned char[]>(fontpixelsize * fontpixelsize * 2);
+    unsigned char* resized_font_bitmap = (unsigned char*)malloc(fontpixelsize * fontpixelsize * 2);
 
     const int n = strlen(text);
 
@@ -1315,7 +1318,7 @@ static void draw_text_c3(unsigned char* pixels, int w, int h, const char* text, 
             const unsigned char* font_bitmap = mono_font_data[font_bitmap_index];
 
             // draw resized character
-            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap.get(), fontpixelsize, fontpixelsize * 2);
+            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap, fontpixelsize, fontpixelsize * 2);
 
             for (int j = cursor_y; j < cursor_y + fontpixelsize * 2; j++) {
                 if (j < 0)
@@ -1324,7 +1327,7 @@ static void draw_text_c3(unsigned char* pixels, int w, int h, const char* text, 
                 if (j >= h)
                     break;
 
-                const unsigned char* palpha = resized_font_bitmap.get() + (j - cursor_y) * fontpixelsize;
+                const unsigned char* palpha = resized_font_bitmap + (j - cursor_y) * fontpixelsize;
                 unsigned char* p = pixels + stride * j;
 
                 for (int k = cursor_x; k < cursor_x + fontpixelsize; k++) {
@@ -1345,6 +1348,8 @@ static void draw_text_c3(unsigned char* pixels, int w, int h, const char* text, 
             cursor_x += fontpixelsize;
         }
     }
+
+    free(resized_font_bitmap);
 }
 
 static void draw_text_c4(unsigned char* pixels, int w, int h, const char* text, int x, int y, int fontpixelsize,
@@ -1353,7 +1358,7 @@ static void draw_text_c4(unsigned char* pixels, int w, int h, const char* text, 
     const unsigned char* pen_color = (const unsigned char*)&color;
     int stride = w * 4;
 
-    auto resized_font_bitmap = std::make_unique<unsigned char[]>(fontpixelsize * fontpixelsize * 2);
+    unsigned char* resized_font_bitmap = (unsigned char*)malloc(fontpixelsize * fontpixelsize * 2);
 
     const int n = strlen(text);
 
@@ -1372,7 +1377,7 @@ static void draw_text_c4(unsigned char* pixels, int w, int h, const char* text, 
             const unsigned char* font_bitmap = mono_font_data[ch - ' '];
 
             // draw resized character
-            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap.get(), fontpixelsize, fontpixelsize * 2);
+            resize_bilinear_c1(font_bitmap, 20, 40, resized_font_bitmap, fontpixelsize, fontpixelsize * 2);
 
             for (int j = cursor_y; j < cursor_y + fontpixelsize * 2; j++) {
                 if (j < 0)
@@ -1381,7 +1386,7 @@ static void draw_text_c4(unsigned char* pixels, int w, int h, const char* text, 
                 if (j >= h)
                     break;
 
-                const unsigned char* palpha = resized_font_bitmap.get() + (j - cursor_y) * fontpixelsize;
+                const unsigned char* palpha = resized_font_bitmap + (j - cursor_y) * fontpixelsize;
                 unsigned char* p = pixels + stride * j;
 
                 for (int k = cursor_x; k < cursor_x + fontpixelsize; k++) {
@@ -1403,6 +1408,8 @@ static void draw_text_c4(unsigned char* pixels, int w, int h, const char* text, 
             cursor_x += fontpixelsize;
         }
     }
+
+    free(resized_font_bitmap);
 }
 
 static void draw_text_yuv420sp(unsigned char* yuv420sp, int w, int h, const char* text, int x, int y, int fontpixelsize,

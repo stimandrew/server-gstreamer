@@ -2,18 +2,15 @@ cmake_minimum_required(VERSION 3.15)
 
 project(rknn_model_zoo_utils)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 add_library(fileutils STATIC
-    file_utils.cpp
+    file_utils.c
 )
 target_include_directories(fileutils PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 add_library(imagedrawing STATIC
-    image_drawing.cpp
+    image_drawing.c
 )
 target_include_directories(imagedrawing PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -29,7 +26,7 @@ if (TARGET_SOC STREQUAL "rv1106" OR TARGET_SOC STREQUAL "rk3588")
 endif()
 
 add_library(imageutils STATIC
-    image_utils.cpp
+    image_utils.c
 )
 
 target_include_directories(imageutils PUBLIC
@@ -54,7 +51,7 @@ else()
 endif()
 
 add_library(audioutils STATIC
-    audio_utils.cpp
+    audio_utils.c
 )
 
 target_link_libraries(audioutils

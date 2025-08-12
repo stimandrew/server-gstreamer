@@ -24,50 +24,75 @@
 #include <set>
 #include <vector>
 
-static std::vector<std::string> labels(OBJ_CLASS_NUM);
+static char *labels[OBJ_CLASS_NUM];
 
 inline static int clamp(float val, int min, int max) { return val > min ? (val < max ? val : max) : min; }
 
-static std::string readLine(FILE *fp) {
-    std::string line;
+static char *readLine(FILE *fp, char *buffer, int *len)
+{
     int ch;
-    while ((ch = fgetc(fp)) != '\n' && ch != EOF) {
-        line += static_cast<char>(ch);
+    int i = 0;
+    size_t buff_len = 0;
+
+    buffer = (char *)malloc(buff_len + 1);
+    if (!buffer)
+        return NULL; // Out of memory
+
+    while ((ch = fgetc(fp)) != '\n' && ch != EOF)
+    {
+        buff_len++;
+        void *tmp = realloc(buffer, buff_len + 1);
+        if (tmp == NULL)
+        {
+            free(buffer);
+            return NULL; // Out of memory
+        }
+        buffer = (char *)tmp;
+
+        buffer[i] = (char)ch;
+        i++;
     }
-    return line;
+    buffer[i] = '\0';
+
+    *len = buff_len;
+
+    // Detect end
+    if (ch == EOF && (i == 0 || ferror(fp)))
+    {
+        free(buffer);
+        return NULL;
+    }
+    return buffer;
 }
 
-static std::vector<std::string> readLines(const char *fileName) {
-    std::vector<std::string> lines;
+static int readLines(const char *fileName, char *lines[], int max_line)
+{
     FILE *file = fopen(fileName, "r");
-    if (file == nullptr) {
+    char *s;
+    int i = 0;
+    int n = 0;
+
+    if (file == NULL)
+    {
         printf("Open %s fail!\n", fileName);
-        return lines;
-    }
-
-    std::string line;
-    while (!(line = readLine(file)).empty()) {
-        lines.push_back(line);
-    }
-    fclose(file);
-    return lines;
-}
-
-static int loadLabelName(const char *locationFilename, std::vector<std::string>& label) {
-    printf("load label %s\n", locationFilename);
-    FILE* file = fopen(locationFilename, "r");
-    if (!file) {
-        printf("Open %s fail!\n", locationFilename);
         return -1;
     }
 
-    std::string line;
-    int i = 0;
-    while (i < OBJ_CLASS_NUM && !(line = readLine(file)).empty()) {
-        label[i++] = line;
+    while ((s = readLine(file, s, &n)) != NULL)
+    {
+        lines[i++] = s;
+        if (i >= max_line)
+            break;
     }
     fclose(file);
     return i;
+}
+
+static int loadLabelName(const char *locationFilename, char *label[])
+{
+    printf("load lable %s\n", locationFilename);
+    readLines(locationFilename, label, OBJ_CLASS_NUM);
+    return 0;
 }
 
 static float CalculateOverlap(float xmin0, float ymin0, float xmax0, float ymax0, float xmin1, float ymin1, float xmax1,
@@ -640,8 +665,7 @@ int init_post_process()
     }
 
     for (int i = 0; i < 10; i++) {
-        const char* label = labels[i].empty() ? "NULL" : labels[i].c_str();
-        qDebug("Label %d: %s\n", i, label);
+        qDebug("Label %d: %s\n", i, labels[i] ? labels[i] : "NULL");
     }
 
     return 0;
@@ -649,14 +673,15 @@ int init_post_process()
 
 char *coco_cls_to_name(int cls_id)
 {
-    if (cls_id >= OBJ_CLASS_NUM || cls_id < 0)
+
+    if (cls_id >= OBJ_CLASS_NUM)
     {
         return "null";
     }
 
-    if (!labels[cls_id].empty())
+    if (labels[cls_id])
     {
-        return const_cast<char*>(labels[cls_id].c_str());
+        return labels[cls_id];
     }
 
     return "null";
@@ -664,5 +689,12 @@ char *coco_cls_to_name(int cls_id)
 
 void deinit_post_process()
 {
-     // Больше не нужно, так как std::string сам управляет памятью
+    for (int i = 0; i < OBJ_CLASS_NUM; i++)
+    {
+        if (labels[i] != nullptr)
+        {
+            free(labels[i]);
+            labels[i] = nullptr;
+        }
+    }
 }

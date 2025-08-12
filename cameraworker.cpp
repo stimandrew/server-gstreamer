@@ -363,13 +363,6 @@ void CameraWorker::processNextFrame() {
 
 void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId) {
     qDebug() << "void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId)";
-    QMutexLocker locker(&m_yoloProcessingMutex);
-    while (m_yoloProcessing) {
-        m_yoloProcessingCondition.wait(&m_yoloProcessingMutex);
-    }
-
-    m_yoloProcessing = true;
-    locker.unlock();
 
     if (!m_yoloInitialized) {
         qWarning() << "YOLO model not initialized";
@@ -384,11 +377,7 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     src_image.height = converted.height();
     src_image.format = IMAGE_FORMAT_RGB888;
     src_image.size = converted.width() * converted.height() * 3;
-
-    auto buffer = std::make_unique<unsigned char[]>(src_image.size);
-    memcpy(buffer.get(), converted.bits(), src_image.size);
-
-    src_image.virt_addr = buffer.get();
+    src_image.virt_addr = (unsigned char*)malloc(src_image.size);
     memcpy(src_image.virt_addr, converted.bits(), src_image.size);
 
     object_detect_result_list od_results;
@@ -397,6 +386,7 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     int ret = inference_yolo11_model(&m_rknnAppCtx, &src_image, &od_results);
     if (ret != 0) {
         qWarning() << "YOLO inference failed";
+        free(src_image.virt_addr);
         return;
     }
 
@@ -434,6 +424,7 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
     }, Qt::QueuedConnection);
 
     emit newObjects(objects);
+    free(src_image.virt_addr);
     if(src_image.virt_addr){
         ensureInWorkerThread();
         qDebug() << "src_image.virt_addr = " << src_image.virt_addr;
@@ -441,10 +432,6 @@ void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourc
         ensureInWorkerThread();
         qDebug() << "!src_image.virt_addr = " << src_image.virt_addr;
     }
-
-    locker.relock();
-    m_yoloProcessing = false;
-    m_yoloProcessingCondition.wakeAll();
 }
 
 QImage CameraWorker::drawDetectionResults(const QImage& frame, const QList<QPair<QRect, QString>>& objects) {
