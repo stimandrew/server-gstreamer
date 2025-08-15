@@ -22,6 +22,9 @@
 #include "file_utils.h"
 #include "image_utils.h"
 
+
+QMutex rknn_mutex;
+
 static void dump_tensor_attr(rknn_tensor_attr *attr)
 {
     printf("  index=%d, name=%s, n_dims=%d, dims=[%d, %d, %d, %d], n_elems=%d, size=%d, fmt=%s, type=%s, qnt_type=%s, "
@@ -33,6 +36,7 @@ static void dump_tensor_attr(rknn_tensor_attr *attr)
 
 int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
 {
+    QMutexLocker locker(&rknn_mutex);
     int ret;
     int model_len = 0;
     char *model;
@@ -137,6 +141,9 @@ int init_yolo11_model(const char *model_path, rknn_app_context_t *app_ctx)
 
 int release_yolo11_model(rknn_app_context_t *app_ctx)
 {
+
+    QMutexLocker locker(&rknn_mutex);
+
     if (app_ctx->input_attrs != NULL)
     {
         free(app_ctx->input_attrs);
@@ -157,6 +164,7 @@ int release_yolo11_model(rknn_app_context_t *app_ctx)
 
 int inference_yolo11_model(rknn_app_context_t *app_ctx, image_buffer_t *img, object_detect_result_list *od_results)
 {
+    QMutexLocker locker(&rknn_mutex);
     int ret;
     image_buffer_t dst_img;
     letterbox_t letter_box;
