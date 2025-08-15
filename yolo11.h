@@ -18,6 +18,7 @@
 
 #include "include/rknn_api.h"
 #include "utils/common.h"
+#include <QMutex>
 
 #if defined(RV1106_1103) 
     typedef struct {
