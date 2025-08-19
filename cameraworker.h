@@ -17,6 +17,7 @@
 #include <QQueue>
 #include <QWaitCondition>
 #include <QPainter>
+#include "commandsmodbus.h"
 #include "yolo11.h"
 
 class CameraWorker : public QObject {
@@ -90,4 +91,5 @@ private:
 
     QImage drawDetectionResults(const QImage& frame, const QList<QPair<QRect, QString>>& objects);
     void pushFrameToPipeline(const QImage& frame);
+
 };

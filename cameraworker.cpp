@@ -491,3 +491,4 @@ void CameraWorker::pushFrameToPipeline(const QImage& frame)
         gst_buffer_unref(buffer);
     }
 }
+

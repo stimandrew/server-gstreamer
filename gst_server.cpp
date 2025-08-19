@@ -4,6 +4,13 @@
 // Конструктор: инициализирует объект и обновляет список устройств
 GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 {
+    m_modbusServer = new ModbusServer(this);
+    connect(m_modbusServer, &ModbusServer::dataWritten,
+            this, &GstStreamer::handleModbusData);
+    connect(m_modbusServer, &ModbusServer::stateChanged,
+            this, &GstStreamer::handleModbusStateChanged);
+    connect(m_modbusServer, &ModbusServer::errorOccurred,
+            this, &GstStreamer::handleModbusError);
     updateAvailableDevices();
 }
 
@@ -429,3 +436,104 @@ void GstStreamer::setYoloModelPath(const QString& path) {
         emit objectsChanged(objects());
     }
 }
+
+void GstStreamer::handleModbusData(QModbusDataUnit::RegisterType table, int address, int size)
+{
+    if (table == QModbusDataUnit::HoldingRegisters) {
+        // Обработка записи в holding registers
+        quint16 value;
+        if (m_modbusServer->getHoldingRegister(address, value)) {
+            // Например, управление камерами по командам Modbus
+            if (address == 0) { // Регистр 0 - команда
+                if (value == 1) { // Старт стриминга
+                    startStreaming(0); // Первая камера
+                }
+                else if (value == 0) { // Стоп стриминга
+                    stopStreaming(0);
+                }
+            }
+        }
+    }
+}
+
+bool GstStreamer::modbusRunning() const
+{
+    return m_modbusServer && (m_modbusServer->state() == QModbusDevice::ConnectedState);
+}
+
+QString GstStreamer::modbusStatus() const
+{
+    if (!m_modbusServer) return "Not initialized";
+
+    switch (m_modbusServer->state()) {
+    case QModbusDevice::UnconnectedState: return "Stopped";
+    case QModbusDevice::ConnectingState: return "Connecting";
+    case QModbusDevice::ConnectedState: return "Running";
+    case QModbusDevice::ClosingState: return "Closing";
+    default: return "Unknown";
+    }
+}
+
+QString GstStreamer::modbusHost() const
+{
+    return m_modbusHost;
+}
+
+void GstStreamer::setModbusHost(const QString &host)
+{
+    if (m_modbusHost != host) {
+        m_modbusHost = host;
+        emit modbusHostChanged();
+
+        if (modbusRunning()) {
+            m_modbusServer->disconnectDevice();
+            m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1);
+        }
+    }
+}
+
+int GstStreamer::modbusPort() const
+{
+    return m_modbusPort;
+}
+
+void GstStreamer::setModbusPort(int port)
+{
+    if (m_modbusPort != port) {
+        m_modbusPort = port;
+        emit modbusPortChanged();
+
+        if (modbusRunning()) {
+            m_modbusServer->disconnectDevice();
+            m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1);
+        }
+    }
+}
+
+
+void GstStreamer::toggleModbusServer()
+{
+    if (!m_modbusServer) return;
+
+    if (modbusRunning()) {
+        m_modbusServer->disconnectDevice();
+    } else {
+        m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1);
+    }
+    emit modbusStatusChanged();
+}
+
+void GstStreamer::handleModbusStateChanged(int state)
+{
+    emit modbusStatusChanged();
+}
+
+void GstStreamer::handleModbusError(QModbusDevice::Error error)
+{
+    if (error != QModbusDevice::NoError) {
+        emit errorOccurred(QString("Modbus error: %1").arg(error));
+    }
+    emit modbusStatusChanged();
+}
+
+

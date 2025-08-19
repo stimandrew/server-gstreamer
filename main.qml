@@ -8,7 +8,7 @@ Window {
     id: window
     width: 600
     minimumWidth: 550
-    height: 550
+    height: 750
     minimumHeight: 600
     visible: true
     title: qsTr("Multi-Camera Streamer")
@@ -223,6 +223,93 @@ Window {
                                 streamer.stopAllStreams()
                             }
                         }
+                    }
+                }
+            }
+        }
+        GroupBox {
+            title: "Modbus Server"
+            Layout.fillWidth: true
+
+            ColumnLayout {
+                width: parent.width
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+
+                    // Индикатор состояния
+                    Rectangle {
+                        id: modbusStatusIndicator
+                        width: 20
+                        height: 20
+                        radius: 10
+                        border.width: 1
+                        border.color: "gray"
+
+                        color: {
+                            if (streamer.modbusStatus === "Running") return "green"
+                            else if (streamer.modbusStatus === "Connecting" || streamer.modbusStatus === "Closing") return "orange"
+                            else return "red"
+                        }
+
+                        SequentialAnimation on opacity {
+                            running: streamer.modbusStatus === "Connecting" || streamer.modbusStatus === "Closing"
+                            loops: Animation.Infinite
+                            NumberAnimation { from: 1.0; to: 0.3; duration: 500 }
+                            NumberAnimation { from: 0.3; to: 1.0; duration: 500 }
+                        }
+
+                        ToolTip.visible: ma.containsMouse
+                        ToolTip.text: "Modbus Status: " + streamer.modbusStatus +
+                                     "\nHost: " + streamer.modbusHost +
+                                     "\nPort: " + streamer.modbusPort
+
+                        MouseArea {
+                            id: ma
+                            anchors.fill: parent
+                            hoverEnabled: true
+                        }
+                    }
+
+                    Label {
+                        text: "Status:"
+                        Layout.minimumWidth: 60
+                    }
+
+                    Label {
+                        text: streamer.modbusStatus
+                        color: {
+                            if (streamer.modbusStatus === "Running") return "green"
+                            else if (streamer.modbusStatus === "Connecting" || streamer.modbusStatus === "Closing") return "orange"
+                            else return "red"
+                        }
+                        Layout.fillWidth: true
+                    }
+                }
+
+                RowLayout {
+                    Label { text: "Modbus Host:" }
+                    TextField {
+                        id: modbusHostField
+                        text: streamer.modbusHost
+                        onTextChanged: streamer.modbusHost = text
+                        Layout.fillWidth: true
+                    }
+                }
+
+                RowLayout {
+                    Label { text: "Modbus Port:" }
+                    SpinBox {
+                        id: modbusPortField
+                        from: 1024
+                        to: 65535
+                        value: streamer.modbusPort
+                        onValueChanged: streamer.modbusPort = value
+                    }
+                    Button {
+                        text: streamer.modbusRunning ? "Stop" : "Start"
+                        onClicked: streamer.toggleModbusServer()
                     }
                 }
             }
