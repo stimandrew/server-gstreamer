@@ -7,6 +7,9 @@ GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
     qDebug() << "Creating GstStreamer...";
     deviceServer = new ModbusDeviceServer(this);
 
+    // Устанавливаем ссылку на себя в Modbus сервере
+    deviceServer->setStreamer(this);
+
     if (deviceServer) {
         qDebug() << "Modbus server created successfully";
         connect(deviceServer, &ModbusServer::dataWritten,
@@ -463,7 +466,7 @@ void GstStreamer::handleModbusData(QModbusDataUnit::RegisterType table, int addr
                 qDebug() << "Checking reboot command on register 100, value:" << value;
                 if (value == 1) { // Команда "перезагрузить"
                     qDebug() << "!!! REBOOT COMMAND RECEIVED !!!";
-                    rebootSystem();
+                    deviceServer->rebootSystem();
                     // Сбрасываем регистр после выполнения команды
                     deviceServer->setHoldingRegister(address, 0);
                     qDebug() << "Holding register 100 reset to 0";
@@ -571,9 +574,14 @@ void GstStreamer::handleModbusError(QModbusDevice::Error error)
     emit modbusStatusChanged();
 }
 
-void GstStreamer::rebootSystem()
+void GstStreamer::startStreamingFromModbus(int deviceIndex)
 {
-    if (deviceServer) {
-        deviceServer->rebootSystem();
-    }
+    QMutexLocker locker(&m_modbusMutex);
+    startStreaming(deviceIndex);
+}
+
+void GstStreamer::stopStreamingFromModbus(int deviceIndex)
+{
+    QMutexLocker locker(&m_modbusMutex);
+    stopStreaming(deviceIndex);
 }

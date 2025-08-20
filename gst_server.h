@@ -78,7 +78,9 @@ signals:
 
 public slots:
     void refreshAvailableDevices();
-    Q_INVOKABLE void rebootSystem();
+    // Добавляем слоты для прямого вызова из Modbus сервера
+    void startStreamingFromModbus(int deviceIndex);
+    void stopStreamingFromModbus(int deviceIndex);
 
 private:
     struct CameraThread {
@@ -109,4 +111,6 @@ private:
 
     QString m_modbusHost = "192.168.1.1";
     int m_modbusPort = 50200;
+    // Добавляем мьютекс для безопасного доступа из Modbus потока
+    QMutex m_modbusMutex;
 };
