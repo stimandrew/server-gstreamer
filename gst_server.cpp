@@ -4,14 +4,24 @@
 // Конструктор: инициализирует объект и обновляет список устройств
 GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 {
+    qDebug() << "Creating GstStreamer...";
     m_modbusServer = new ModbusServer(this);
-    connect(m_modbusServer, &ModbusServer::dataWritten,
-            this, &GstStreamer::handleModbusData);
-    connect(m_modbusServer, &ModbusServer::stateChanged,
-            this, &GstStreamer::handleModbusStateChanged);
-    connect(m_modbusServer, &ModbusServer::errorOccurred,
-            this, &GstStreamer::handleModbusError);
+
+    if (m_modbusServer) {
+        qDebug() << "Modbus server created successfully";
+        connect(m_modbusServer, &ModbusServer::dataWritten,
+                this, &GstStreamer::handleModbusData);
+        connect(m_modbusServer, &ModbusServer::stateChanged,
+                this, &GstStreamer::handleModbusStateChanged);
+        connect(m_modbusServer, &ModbusServer::errorOccurred,
+                this, &GstStreamer::handleModbusError);
+        qDebug() << "Modbus server signals connected";
+    } else {
+        qWarning() << "Failed to create Modbus server!";
+    }
+
     updateAvailableDevices();
+    qDebug() << "GstStreamer initialized";
 }
 
 // Деструктор: останавливает все активные потоки
@@ -439,19 +449,28 @@ void GstStreamer::setYoloModelPath(const QString& path) {
 
 void GstStreamer::handleModbusData(QModbusDataUnit::RegisterType table, int address, int size)
 {
+    qDebug() << "GstStreamer::handleModbusData - Table:" << table
+             << "Address:" << address << "Size:" << size;
+
     if (table == QModbusDataUnit::HoldingRegisters) {
-        // Обработка записи в holding registers
+        // Получаем ЗАПИСАННОЕ значение
         quint16 value;
         if (m_modbusServer->getHoldingRegister(address, value)) {
-            // Например, управление камерами по командам Modbus
-            if (address == 0) { // Регистр 0 - команда
-                if (value == 1) { // Старт стриминга
-                    startStreaming(0); // Первая камера
-                }
-                else if (value == 0) { // Стоп стриминга
-                    stopStreaming(0);
+            qDebug() << "Holding register" << address << "value:" << value;
+
+            // Команда перезагрузки системы
+            if (address == 100) {
+                qDebug() << "Checking reboot command on register 100, value:" << value;
+                if (value == 1) { // Команда "перезагрузить"
+                    qDebug() << "!!! REBOOT COMMAND RECEIVED !!!";
+                    rebootSystem();
+                    // Сбрасываем регистр после выполнения команды
+                    m_modbusServer->setHoldingRegister(address, 0);
+                    qDebug() << "Holding register 100 reset to 0";
                 }
             }
+        } else {
+            qDebug() << "Failed to get holding register" << address;
         }
     }
 }
@@ -513,27 +532,48 @@ void GstStreamer::setModbusPort(int port)
 
 void GstStreamer::toggleModbusServer()
 {
-    if (!m_modbusServer) return;
+    if (!m_modbusServer) {
+        qWarning() << "Modbus server not initialized!";
+        return;
+    }
 
     if (modbusRunning()) {
+        qDebug() << "Stopping Modbus server...";
         m_modbusServer->disconnectDevice();
+        qDebug() << "Modbus server stopped";
     } else {
-        m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1);
+        qDebug() << "Starting Modbus server on" << m_modbusHost << ":" << m_modbusPort;
+        if (m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1)) {
+            qDebug() << "Modbus server started successfully";
+        } else {
+            qWarning() << "Failed to start Modbus server!";
+            QString error = "Failed to start Modbus server on " + m_modbusHost + ":" + QString::number(m_modbusPort);
+            emit errorOccurred(error);
+        }
     }
     emit modbusStatusChanged();
 }
 
 void GstStreamer::handleModbusStateChanged(int state)
 {
+    qDebug() << "Modbus state changed to:" << state;
     emit modbusStatusChanged();
 }
 
 void GstStreamer::handleModbusError(QModbusDevice::Error error)
 {
+    qDebug() << "Modbus error occurred:" << error;
     if (error != QModbusDevice::NoError) {
-        emit errorOccurred(QString("Modbus error: %1").arg(error));
+        QString errorMsg = QString("Modbus error: %1").arg(error);
+        qWarning() << errorMsg;
+        emit errorOccurred(errorMsg);
     }
     emit modbusStatusChanged();
 }
 
-
+void GstStreamer::rebootSystem()
+{
+    if (m_modbusServer) {
+        m_modbusServer->rebootSystem();
+    }
+}

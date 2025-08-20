@@ -78,6 +78,7 @@ signals:
 
 public slots:
     void refreshAvailableDevices();
+    Q_INVOKABLE void rebootSystem();
 
 private:
     struct CameraThread {

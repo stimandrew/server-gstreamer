@@ -362,7 +362,6 @@ void CameraWorker::processNextFrame() {
 }
 
 void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId) {
-    qDebug() << "void CameraWorker::processFrameWithRGA(const QImage &frame, const QString &sourceDeviceId)";
 
     if (!m_yoloInitialized) {
         qWarning() << "YOLO model not initialized";
@@ -469,8 +468,6 @@ QImage CameraWorker::drawDetectionResults(const QImage& frame, const QList<QPair
 
 void CameraWorker::pushFrameToPipeline(const QImage& frame)
 {
-
-    qDebug() << "void CameraWorker::pushFrameToPipeline(const QImage& frame)";
     GstBuffer* buffer = gst_buffer_new_allocate(nullptr, frame.sizeInBytes(), nullptr);
     GstMapInfo map;
 

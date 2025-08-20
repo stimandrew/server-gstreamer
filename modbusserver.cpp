@@ -31,12 +31,15 @@ bool ModbusServer::connectDevice(const QString &host, int port, int serverAddres
     if (!m_modbusDevice)
         return false;
 
+    connect(m_modbusDevice, &QModbusServer::dataWritten,
+            this, &ModbusServer::handleDataWritten);
+
     // Настройка карты регистров
     QModbusDataUnitMap reg;
     reg.insert(QModbusDataUnit::Coils, { QModbusDataUnit::Coils, 0, 10 });
     reg.insert(QModbusDataUnit::DiscreteInputs, { QModbusDataUnit::DiscreteInputs, 0, 10 });
     reg.insert(QModbusDataUnit::InputRegisters, { QModbusDataUnit::InputRegisters, 0, 10 });
-    reg.insert(QModbusDataUnit::HoldingRegisters, { QModbusDataUnit::HoldingRegisters, 0, 10 });
+    reg.insert(QModbusDataUnit::HoldingRegisters, { QModbusDataUnit::HoldingRegisters, 0, 101 });
     m_modbusDevice->setMap(reg);
 
     // Подключаем сигналы
@@ -80,8 +83,10 @@ void ModbusServer::setInputRegister(int address, quint16 value)
 
 void ModbusServer::setHoldingRegister(int address, quint16 value)
 {
-    if (m_modbusDevice)
+    if (m_modbusDevice) {
         m_modbusDevice->setData(QModbusDataUnit::HoldingRegisters, quint16(address), value);
+        m_holdingRegisters[address] = value;
+    }
 }
 
 bool ModbusServer::getCoil(int address, bool &value) const
@@ -113,9 +118,11 @@ bool ModbusServer::getInputRegister(int address, quint16 &value) const
 
 bool ModbusServer::getHoldingRegister(int address, quint16 &value) const
 {
-    if (!m_modbusDevice)
-        return false;
-    return m_modbusDevice->data(QModbusDataUnit::HoldingRegisters, quint16(address), &value);
+    if (m_holdingRegisters.contains(address)) {
+        value = m_holdingRegisters[address];
+        return true;
+    }
+    return false;
 }
 
 void ModbusServer::setListenOnly(bool listenOnly)
@@ -161,3 +168,35 @@ QModbusDevice::State ModbusServer::state() const
     }
     return QModbusDevice::UnconnectedState;
 }
+
+void ModbusServer::rebootSystem()
+{
+    CommandsModbus::rebootSystem();
+}
+
+void ModbusServer::handleDataWritten(QModbusDataUnit::RegisterType table, int address, int size)
+{
+    qDebug() << "ModbusServer::handleDataWritten - Table:" << table
+             << "Address:" << address << "Size:" << size;
+
+    if (!m_modbusDevice) {
+        qDebug() << "Modbus device is null!";
+        return;
+    }
+
+    if (table == QModbusDataUnit::HoldingRegisters) {
+        for (int i = address; i < address + size; ++i) {
+            quint16 value;
+            if (m_modbusDevice->data(QModbusDataUnit::HoldingRegisters, i, &value)) {
+                m_holdingRegisters[i] = value;
+                qDebug() << "Holding register" << i << "set to:" << value;
+
+                // Немедленно эмитируем сигнал для каждого измененного регистра
+                emit dataWritten(table, i, 1);
+            } else {
+                qDebug() << "Failed to get data for holding register" << i;
+            }
+        }
+    }
+}
+
