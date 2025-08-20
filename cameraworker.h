@@ -17,7 +17,7 @@
 #include <QQueue>
 #include <QWaitCondition>
 #include <QPainter>
-#include "commandsmodbus.h"
+#include "modbusdeviceserver.h"
 #include "yolo11.h"
 
 class CameraWorker : public QObject {

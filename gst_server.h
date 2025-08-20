@@ -14,7 +14,7 @@
 #include <QMap>
 #include "cameraworker.h"
 #include "cameracaptureworker.h"
-#include "modbusserver.h"
+#include "modbusdeviceserver.h"
 
 class GstStreamer : public QObject
 {
@@ -98,7 +98,7 @@ private:
     bool m_yoloEnabled = false;
     QString m_yoloModelPath;
     QList<QPair<QRect, QString>> m_objects;
-    ModbusServer* m_modbusServer;
+    ModbusDeviceServer *deviceServer = nullptr;
     void updateAvailableDevices();
     void updateActiveStreams();
     void resetCamera();

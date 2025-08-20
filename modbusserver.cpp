@@ -169,11 +169,6 @@ QModbusDevice::State ModbusServer::state() const
     return QModbusDevice::UnconnectedState;
 }
 
-void ModbusServer::rebootSystem()
-{
-    CommandsModbus::rebootSystem();
-}
-
 void ModbusServer::handleDataWritten(QModbusDataUnit::RegisterType table, int address, int size)
 {
     qDebug() << "ModbusServer::handleDataWritten - Table:" << table

@@ -5,15 +5,15 @@
 GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 {
     qDebug() << "Creating GstStreamer...";
-    m_modbusServer = new ModbusServer(this);
+    deviceServer = new ModbusDeviceServer(this);
 
-    if (m_modbusServer) {
+    if (deviceServer) {
         qDebug() << "Modbus server created successfully";
-        connect(m_modbusServer, &ModbusServer::dataWritten,
+        connect(deviceServer, &ModbusServer::dataWritten,
                 this, &GstStreamer::handleModbusData);
-        connect(m_modbusServer, &ModbusServer::stateChanged,
+        connect(deviceServer, &ModbusServer::stateChanged,
                 this, &GstStreamer::handleModbusStateChanged);
-        connect(m_modbusServer, &ModbusServer::errorOccurred,
+        connect(deviceServer, &ModbusServer::errorOccurred,
                 this, &GstStreamer::handleModbusError);
         qDebug() << "Modbus server signals connected";
     } else {
@@ -455,7 +455,7 @@ void GstStreamer::handleModbusData(QModbusDataUnit::RegisterType table, int addr
     if (table == QModbusDataUnit::HoldingRegisters) {
         // Получаем ЗАПИСАННОЕ значение
         quint16 value;
-        if (m_modbusServer->getHoldingRegister(address, value)) {
+        if (deviceServer->getHoldingRegister(address, value)) {
             qDebug() << "Holding register" << address << "value:" << value;
 
             // Команда перезагрузки системы
@@ -465,7 +465,7 @@ void GstStreamer::handleModbusData(QModbusDataUnit::RegisterType table, int addr
                     qDebug() << "!!! REBOOT COMMAND RECEIVED !!!";
                     rebootSystem();
                     // Сбрасываем регистр после выполнения команды
-                    m_modbusServer->setHoldingRegister(address, 0);
+                    deviceServer->setHoldingRegister(address, 0);
                     qDebug() << "Holding register 100 reset to 0";
                 }
             }
@@ -477,14 +477,14 @@ void GstStreamer::handleModbusData(QModbusDataUnit::RegisterType table, int addr
 
 bool GstStreamer::modbusRunning() const
 {
-    return m_modbusServer && (m_modbusServer->state() == QModbusDevice::ConnectedState);
+    return deviceServer && (deviceServer->state() == QModbusDevice::ConnectedState);
 }
 
 QString GstStreamer::modbusStatus() const
 {
-    if (!m_modbusServer) return "Not initialized";
+    if (!deviceServer) return "Not initialized";
 
-    switch (m_modbusServer->state()) {
+    switch (deviceServer->state()) {
     case QModbusDevice::UnconnectedState: return "Stopped";
     case QModbusDevice::ConnectingState: return "Connecting";
     case QModbusDevice::ConnectedState: return "Running";
@@ -505,8 +505,8 @@ void GstStreamer::setModbusHost(const QString &host)
         emit modbusHostChanged();
 
         if (modbusRunning()) {
-            m_modbusServer->disconnectDevice();
-            m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1);
+            deviceServer->disconnectDevice();
+            deviceServer->connectDevice(m_modbusHost, m_modbusPort, 1);
         }
     }
 }
@@ -523,8 +523,8 @@ void GstStreamer::setModbusPort(int port)
         emit modbusPortChanged();
 
         if (modbusRunning()) {
-            m_modbusServer->disconnectDevice();
-            m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1);
+            deviceServer->disconnectDevice();
+            deviceServer->connectDevice(m_modbusHost, m_modbusPort, 1);
         }
     }
 }
@@ -532,18 +532,18 @@ void GstStreamer::setModbusPort(int port)
 
 void GstStreamer::toggleModbusServer()
 {
-    if (!m_modbusServer) {
+    if (!deviceServer) {
         qWarning() << "Modbus server not initialized!";
         return;
     }
 
     if (modbusRunning()) {
         qDebug() << "Stopping Modbus server...";
-        m_modbusServer->disconnectDevice();
+        deviceServer->disconnectDevice();
         qDebug() << "Modbus server stopped";
     } else {
         qDebug() << "Starting Modbus server on" << m_modbusHost << ":" << m_modbusPort;
-        if (m_modbusServer->connectDevice(m_modbusHost, m_modbusPort, 1)) {
+        if (deviceServer->connectDevice(m_modbusHost, m_modbusPort, 1)) {
             qDebug() << "Modbus server started successfully";
         } else {
             qWarning() << "Failed to start Modbus server!";
@@ -573,7 +573,7 @@ void GstStreamer::handleModbusError(QModbusDevice::Error error)
 
 void GstStreamer::rebootSystem()
 {
-    if (m_modbusServer) {
-        m_modbusServer->rebootSystem();
+    if (deviceServer) {
+        deviceServer->rebootSystem();
     }
 }

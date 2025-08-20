@@ -5,7 +5,6 @@
 #include <QModbusDataUnit>
 #include <QModbusTcpServer>
 #include <QUrl>
-#include "commandsmodbus.h"
 
 class ModbusServer : public QObject
 {
@@ -37,7 +36,6 @@ public:
     void setListenOnly(bool listenOnly);
     void setDeviceBusy(bool busy);
     QModbusDevice::State state() const;
-    void rebootSystem();
 
 signals:
     void dataWritten(QModbusDataUnit::RegisterType table, int address, int size);

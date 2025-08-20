@@ -1,8 +1,11 @@
-#include "commandsmodbus.h"
+#include "modbusdeviceserver.h"
 
-CommandsModbus::CommandsModbus() {}
+ModbusDeviceServer::ModbusDeviceServer(QObject *parent) : ModbusServer(parent)
+{
 
-void CommandsModbus::rebootSystem() {
+}
+
+void ModbusDeviceServer::rebootSystem() {
     // Создаем интерфейс для работы с systemd-logind
     QDBusInterface loginInterface(
         "org.freedesktop.login1",                     // DBus-сервис

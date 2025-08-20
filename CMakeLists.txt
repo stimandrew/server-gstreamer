@@ -48,7 +48,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         rknpu2/yolo11.cpp
         postprocess.h
         postprocess.cpp
-        commandsmodbus.h commandsmodbus.cpp
+        modbusdeviceserver.h modbusdeviceserver.cpp
         modbusserver.h modbusserver.cpp
 
     )
