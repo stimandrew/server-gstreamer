@@ -25,6 +25,7 @@ GstStreamer::GstStreamer(QObject* parent) : QObject(parent)
 
     updateAvailableDevices();
     qDebug() << "GstStreamer initialized";
+    QTimer::singleShot(5000, this, &GstStreamer::autoConnectModbus);
 }
 
 // Деструктор: останавливает все активные потоки
@@ -584,4 +585,30 @@ void GstStreamer::stopStreamingFromModbus(int deviceIndex)
 {
     QMutexLocker locker(&m_modbusMutex);
     stopStreaming(deviceIndex);
+}
+
+void GstStreamer::autoConnectModbus()
+{
+    if (!deviceServer) {
+        qWarning() << "Modbus server not initialized for auto-connect!";
+        return;
+    }
+
+    if (!modbusRunning()) {
+        qDebug() << "Auto-connecting Modbus server on" << m_modbusHost << ":" << m_modbusPort;
+        if (deviceServer->connectDevice(m_modbusHost, m_modbusPort, 1)) {
+            qDebug() << "Modbus server auto-connected successfully";
+        } else {
+            qWarning() << "Failed to auto-connect Modbus server!";
+            QString error = "Failed to auto-connect Modbus server on " +
+                            m_modbusHost + ":" + QString::number(m_modbusPort);
+            emit errorOccurred(error);
+
+            // Опционально: попробовать снова через некоторое время
+            // QTimer::singleShot(10000, this, &GstStreamer::autoConnectModbus);
+        }
+        emit modbusStatusChanged();
+    } else {
+        qDebug() << "Modbus server already running, skipping auto-connect";
+    }
 }

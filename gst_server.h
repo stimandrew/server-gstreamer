@@ -113,4 +113,7 @@ private:
     int m_modbusPort = 50200;
     // Добавляем мьютекс для безопасного доступа из Modbus потока
     QMutex m_modbusMutex;
+private slots:
+    // Добавьте этот слот в раздел private slots
+    void autoConnectModbus();
 };
