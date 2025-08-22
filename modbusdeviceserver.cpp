@@ -3,6 +3,9 @@
 
 ModbusDeviceServer::ModbusDeviceServer(QObject *parent) : ModbusServer(parent)
 {
+    QTimer *updateTimer = new QTimer(this);
+    connect(updateTimer, &QTimer::timeout, this, &ModbusDeviceServer::updateCameraStates);
+    updateTimer->start(1000);
     // Подключаем обработчик изменений Coils
     connect(this, &ModbusServer::dataWritten, this,
             [this](QModbusDataUnit::RegisterType table, int address, int size) {
@@ -78,5 +81,18 @@ void ModbusDeviceServer::handleCoilWritten(int address, bool value)
             QMetaObject::invokeMethod(m_streamer, "stopStreaming",
                                       Qt::QueuedConnection, Q_ARG(int, cameraIndex));
         }
+    }
+}
+
+void ModbusDeviceServer::updateCameraStates()
+{
+    if (!m_streamer) return;
+
+    // Обновляем состояние катушек в соответствии с состоянием камер
+    for (int i = 0; i < 10; i++) { // Поддерживаем до 10 камер
+        bool isCameraActive = m_streamer->isCameraActive(i);
+        setCoil(i, isCameraActive);
+
+        qDebug() << "Camera" << i << "state:" << isCameraActive << "(coil" << i << "set to" << isCameraActive << ")";
     }
 }

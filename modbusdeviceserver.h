@@ -18,6 +18,7 @@ public:
 
     // Установка ссылки на GstStreamer для управления камерами
     void setStreamer(GstStreamer* streamer);
+    void updateCameraStates();
 
 private:
     GstStreamer* m_streamer = nullptr; // Ссылка на объект управления камерами
