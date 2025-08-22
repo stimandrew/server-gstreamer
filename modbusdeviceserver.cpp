@@ -5,7 +5,7 @@ ModbusDeviceServer::ModbusDeviceServer(QObject *parent) : ModbusServer(parent)
 {
     QTimer *updateTimer = new QTimer(this);
     connect(updateTimer, &QTimer::timeout, this, &ModbusDeviceServer::updateCameraStates);
-    updateTimer->start(1000);
+    updateTimer->start(10000);
     // Подключаем обработчик изменений Coils
     connect(this, &ModbusServer::dataWritten, this,
             [this](QModbusDataUnit::RegisterType table, int address, int size) {
